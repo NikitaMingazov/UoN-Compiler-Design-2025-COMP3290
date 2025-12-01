@@ -1,0 +1,14 @@
+CD25 XOR /-- syntax error: expected iden, saw xor
+constants
+	a is true,
+	b is false
+main
+	result : boolean2 /-- syntax error: expected a type but saw identifier
+begin
+	result = (a or b) and ((not a) or (not b)); /-- (a XOR b) syntax error: unexpected relational operator
+	if (result)
+		Out << "It is true" << Line;
+	else
+		Out << "It is false" << Line;
+	end
+end CD25 XOR /-- syntax error: expected iden, saw xor

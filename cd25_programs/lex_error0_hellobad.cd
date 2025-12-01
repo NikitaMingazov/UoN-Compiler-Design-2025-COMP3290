@@ -1,0 +1,6 @@
+CD25 HelloBad
+main
+	i : !x /-- lexical error !
+begin да /-- lexical error да
+	Out << "Hello World" << Line ;
+end CD25 HelloBad

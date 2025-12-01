@@ -1,0 +1,6 @@
+cd25 AmonAmarth
+main
+	i : boolean
+begin
+	out << "Mount Doom << line ; /-- lexical error unclosed string
+end CD25 AmonAmarth

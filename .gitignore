@@ -1,0 +1,5 @@
+# the target binary
+a3
+*.o
+# listing files
+*.lst

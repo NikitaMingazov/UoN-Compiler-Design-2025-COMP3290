@@ -1,0 +1,8 @@
+CD25 Exponential
+constants
+	e is 2.71828; /-- syntax error: unexpected ;
+main
+	i : boolean
+begin
+	Out >> e ^ 2 >> line; /-- syntax error: >> where << should be
+end CD25 Exponential

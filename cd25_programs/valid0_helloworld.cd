@@ -1,0 +1,15 @@
+/**
+(taken from a lecture slide)
+I consider this the simplest working program in CD.
+Removing the out line would result in something simple, but doing nothing isn't a working program in my opinion.
+**/
+
+CD25 HelloWorld
+
+main
+	i : boolean   /-- only primitive types possible,
+              /-- array or struct type not possible
+              /-- Can NOT be empty
+begin
+	Out << "Hello World!" << Line ;
+end CD25 HelloWorld

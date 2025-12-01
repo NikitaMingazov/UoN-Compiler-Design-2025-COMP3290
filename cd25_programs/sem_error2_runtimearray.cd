@@ -1,0 +1,61 @@
+CD25 RuntimeArray
+constants
+	x is f(4), /-- not known at compile time
+	n is 42,
+	x is false /-- redefinition
+types
+	point is
+		x : real,
+		y : real,
+		z : real
+	end
+
+	Bool is
+		a : boolean
+	end
+	GlobalBool is array[1] of Bool end
+
+	PointArray is array[x] of point end /-- because x was not known at compile time, x is not known to be an integer
+	consttest is array[2 * n] of point end
+	PointArray2 is array[f(5)] of point end /-- array size not known at compile time
+
+arrays
+	GlobalBool : GlobalBool, /-- name collision
+	bool : GlobalBool,
+	points : PointArray,
+	points2 : PointArray, /-- array type does not exist
+	junk : fakeArray /-- array type does not exist
+
+func f (x : real) : real  /-- function does not return
+	result : integer
+begin
+	result = x * 2 + 3; /-- asignment of real to integer variable
+end
+
+func g (x : nonexistentarray) : void /-- array type doesn't exist
+begin
+	return true;
+end
+
+main
+	i : real,
+	i : real /-- redefinition
+begin
+	Out << "This should not compile" << Line;
+	points2 = points;
+	points2 = bool; /-- assignment using different array types
+	points2[0] = bool[0]; /-- struct assignment between different array types
+	i = i[0]; /-- i is not an array
+	i = fakevar; /-- undeclared variable
+	i = g(i, 2); /-- does not match g definition, and void function is not an expression
+	i = h(); /-- function does not exist
+	i = f(1, 2); /-- too many arguments
+	i = f(); /-- too few arguments
+	i = f(i) % 1; /-- modulo not defined for reals
+	i = f(bools[0].a); /-- array does not exist
+	i = f(bool[0].a); /-- incorrect type
+	i = f(points[0].x);
+	i = f(0);
+	i = false; /-- assignment with incompatible type
+	f(0); /-- non void function used as statement
+end CD25 RuntimeArray

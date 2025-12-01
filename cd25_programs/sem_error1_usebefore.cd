@@ -1,0 +1,9 @@
+CD25 UseBefore
+constants
+	sqrt2 is 1.4142
+main
+	x : integer
+begin
+	sqrt2 += x; /-- semantic error: adding an undefined variable to a constant
+	Out << sqrt2 << Line;
+end CD25 UseBefore

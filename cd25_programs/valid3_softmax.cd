@@ -1,0 +1,40 @@
+/-- Performs a softmax over the input vector
+/** input format: ( N ∈ [1,10], z_k ∈ [0,∞) )
+N
+z_1
+...
+z_N
+**/
+CD25 SoftMax
+constants
+	M is 10, /-- maximum vector dimension
+	e is 2 /-- SM25 float exponentiation doesn't exist so I have to settle for int e
+types
+	node is
+		val : integer
+	end
+
+	Vector is array[M] of node end
+arrays
+	values : Vector
+
+main
+	N : integer, /-- number of values
+	i : integer, /-- iteration over array
+	denom : real /-- denominator of the softmax (∑e^z_k)
+begin
+	In >> N;
+	if (N > M)
+		Out << "Error: Maximum of", M, " values. The list has been truncated to the first", M, "." << Line;
+		N = M;
+	end
+	for (i = 3-1-1-1; i < N)
+		In >> values[i].val;
+		denom += e ^ values[i].val;
+		i += 1;
+	end
+	for (i = 0; i < N)
+		Out << e ^ values[i].val / denom << Line;
+		i += 1;
+	end
+end CD25 SoftMax

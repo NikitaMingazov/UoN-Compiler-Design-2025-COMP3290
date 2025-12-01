@@ -1,0 +1,19 @@
+CD25 printsquares
+main
+	i : integer
+begin
+	repeat (i = 1)
+		if (1 == 1)
+			Out << i^2 << Line;
+			i += 1;
+		end
+	until ( i < 10 );
+	for (i = 10; i < 20)
+		if (1 == 0)
+			Out << "" ;
+		else
+			Out << i^2 << Line;
+			i += 1;
+		end
+	end
+end CD25 printsquares

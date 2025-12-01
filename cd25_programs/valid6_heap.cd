@@ -1,0 +1,112 @@
+/-- for making larger CD25 programs, this should be way nicer to work with than CD25 arrays
+CD25 HeapSim
+constants
+	heapsize is 10
+types
+	int is val : integer end
+
+	intarray is array[heapsize] of int end
+arrays
+	heap : intarray,
+	allocations : intarray
+
+func deref ( address : integer ) : integer
+begin
+	return heap[address].val;
+end
+
+func set ( address : integer, value : integer ) : void
+begin
+	heap[address].val = value;
+	return void;
+end
+
+/**
+allocations signifies the size of the block, like so:
+(example state)
+	heap:        [2,4,0,1,2,3,0,1,0,0]
+	allocations: [2,0,0,3,0,0,0,1,0,0]
+**/
+func allocInt (numallocated : integer) : integer
+	i : integer,
+	j : integer,
+	continue : boolean
+begin
+	continue = true;
+	repeat (i = 0)
+		if (allocations[i].val != 0)
+			i += allocations[i].val;
+		else
+			for (j = 0; not_break and j < numallocated and i+j < heapsize)
+				if (allocations[i+j].val != 0)
+					/--i += allocations[i+j].val + j - 1; /-- compiler parsing bug here?
+					i += allocations[i+j].val + j;
+					not_break = false; /-- break;
+				else
+					j += 1;
+				end
+			end
+			if (j == numallocated) /-- there is sufficient space, allocate
+				allocations[i].val = numallocated;
+				return i;
+			else
+				i += j;
+			end
+		end
+	until ( i >= heapsize ) ;
+	Out << "ran out of heap memory" << Line;
+	return 0-1;
+end
+
+func free ( adr : integer) : void
+begin
+	allocations[adr].val = 0;
+	return void;
+end
+
+func sumArray ( adr : integer, len : integer ) : integer
+	i : integer,
+	sum : integer
+begin
+	for (i = 0; i < len)
+		sum += deref(adr+i);
+		i += 1;
+	end
+	return sum;
+end
+
+main
+	i : integer,
+	x : integer,
+	y : integer,
+	z : integer
+begin
+	/-- todo: array struct default initialisation to avoid having to do this to avoid UNDF crashes
+	for (i = 0; i < heapsize)
+		heap[i].val = 0;
+		allocations[i].val = 0;
+		i += 1;
+	end
+	x = allocInt(1);
+	free(x);
+	x = allocInt(3);
+	set(x, 3);
+	set(x+1, 4);
+	set(x+2, 5);
+	Out << "x = [", deref(x), ",", deref(x+1), ",", deref(x+2), " ]" << Line;
+	Out << "x sums to:", sumArray(x, 3) << Line;
+	y = allocInt(4);
+	z = allocInt(3);
+	Out << "Allocated addresses:" << Line;
+	Out << "x=", x, ", y=", y, ", z=", z << Line;
+	free(x);
+	free(z);
+	Out << "allocating a new array onto y to leak memory, but should fail due to no contiguous 4-block on heap" << Line;
+	y = allocInt(4); /-- should not find space and fail
+	z = allocInt(3); /-- uninitialised values should be [3, 4, 5]
+	Out << "(uninitialised) z = [", deref(z), ",", deref(z+1), ",", deref(z+2), " ]" << Line;
+	set(z, 1);
+	set(z+1, 4);
+	set(z+2, 8);
+	Out << "(use after free) x = [", deref(x), ",", deref(x+1), ",", deref(x+2), " ]" << Line;
+end CD25 HeapSim

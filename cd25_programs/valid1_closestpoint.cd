@@ -1,0 +1,71 @@
+/-- Takes a list of points in 3D Euclidean space and returns the one closest to the origin.
+/** input format: (N ∈ [1,20])
+N
+x_1, y_1, y_1
+...
+x_N, y_N, z_N
+**/
+CD25 ClosestPoint
+constants
+	M is 7 /-- maximum number of points
+types
+	point is
+		x : real,
+		y : real,
+		z : real
+	end
+
+	PointArray is array[M] of point end
+arrays
+	points : PointArray
+
+/-- Newton's method
+func sqrt (x : real) : real
+	x0 : real
+begin
+	x0 = 1.0; /-- todo: =1; is semantically incorrect, but compiles
+	x0 = x0 - (x0*x0 - x) / (2*x0);
+	x0 = x0 - (x0*x0 - x) / (2*x0);
+	x0 = x0 - (x0*x0 - x) / (2*x0);
+	return x0;
+end
+
+func magnitude (x : real, y : real, z : real) : real
+	sum : real
+begin
+	sum = x*x; /-- stupid language can't do real^2
+	sum += y*y;
+	sum += z*z;
+	return sqrt(sum);
+end
+
+/-- todo: comment out N to i decls and it segfaults
+main
+	N : integer, /-- number of points
+	indexOfClosest : integer,
+	minimum : real, /-- lowest distance so far
+	i : integer, /-- iteration over array
+	currentDist : real
+begin
+	In >> N;
+	if (N > M)
+		Out << "Error: Maximum of", M, " points. The list has been truncated to the first", M, "." << Line;
+		N = M; /-- keeping N within bounds of the array (other errors like N=0 or a line without a Y or Z are known but assumed not to exist)
+	end
+	for (i = 0; i < N)
+		In >> points[i].x, points[i].y, points[i].z;
+		currentDist = magnitude(points[i].x, points[i].y, points[i].z);
+		if (i == 0) /-- unconditional first pass due to uninitialised variables
+			indexOfClosest = i;
+			minimum = currentDist;
+		end
+		if (currentDist < minimum)
+			indexOfClosest = i;
+			minimum = currentDist;
+		end
+		i += 1;
+	end
+	Out << "Index of closest: ", indexOfClosest << Line;
+	Out << "Point:" , points[indexOfClosest].x, points[indexOfClosest].y, points[indexOfClosest].z << Line;
+	Out << "Distance:", minimum << Line;
+end CD25 ClosestPoint

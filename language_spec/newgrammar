@@ -1,0 +1,128 @@
+# this is most of the new grammar, now LL(1) that I used in the implementation
+# We were told there was at least one ambiguity in the gramar, but I implemented the compiler having not noticed it. Maybe I implicitly solved it, maybe not.
+
+<program> ::== CD25 <id> <globals> <funcs> <mainbody>
+<globals> ::== <consts> <types> <arrays>
+<consts> ::== constants <initlist> | ε
+<initlist> ::== <init> <initlistopt>
+	<initlistopt> ::== , <initlist>
+	<initlistopt> ::== ε
+<init> ::== <id> is <expr>
+<types> ::== types <typelist> | ε
+<arrays> ::== arrays <arrdecls> | ε
+<funcs> ::== <func> <funcs> | ε
+<mainbody> ::== main <slist> begin <stats> end CD25 <id>
+<slist> ::== <sdecl> <slistopt>
+	<slistopt> ::== , <slist>
+	<slistopt> ::== ε
+<typelist> ::== <type> <typelistopt>
+	<typelistopt> ::== , <typelist>
+	<typelistopt> ::== ε
+
+# note: below is relevant for symbol table
+<type> ::== <structid> is <fields> end
+<type> ::== <typeid> is array [ <expr> ] of <structid> end
+
+<type> ::== <id> is <typeclose>
+	<typeclose> ::== <fields> end
+	<typeclose> ::== array [ <expr> ] of <id> end
+<fields> ::== <sdecl> <fieldsopt>
+	<fieldsopt> ::== , <fields>
+	<fieldsopt> ::== ε
+<sdecl> ::== <id> : <stype>
+<arrdecls> ::== <arrdecl> <arrdeclopt>
+	<arrdeclopt> ::== , <arrdecls>
+	<arrdeclopt> ::== ε
+<arrdecl> ::== <id> : <typeid>
+<func> ::== func <id> ( <plist> ) : <rtype> <funcbody>
+<rtype> ::== <stype> | void
+<plist> ::== <params> | ε
+<params> ::== <param> <paramsopt>
+	<paramsopt> ::== , <params>
+	<paramsopt> ::== ε
+<param> ::== <decl> | const <arrdecl>
+	#collapsed two into decl
+<funcbody> ::== <locals> begin <stats> end
+<locals> ::== <dlist> | ε
+<dlist> ::== <decl> <dlistopt>
+	<dlistopt> ::== , <dlist>
+	<dlistopt> ::== ε
+<decl> ::== <sdecl> | <arrdecl>
+<stype> ::== integer | real | boolean
+<stats> ::== <stat> ; <statsopt>
+<stats> ::== <strstat> <statsopt>
+	<statsopt> ::== <stats>
+	<statsopt> ::== ε
+<strstat> ::== <forstat> | <ifstat>
+<stat> ::== <reptstat> | <asgnstat> | <iostat> | <callstat> | <returnstat>
+<forstat> ::=  for ( <asgnlist> ; <bool> ) <stats> end
+<repstat> ::=  repeat ( <asgnlist> ) <stats> until <bool>
+<asgnlist> ::== <alist> | ε
+<alist> ::== <asgnstat> ; <alistopt>
+	<alistopt> ::== , <alist>
+	<alistopt> ::== ε
+<ifstat> ::== if ( <bool> ) <stats> <closeif>
+	<closeif> ::== else <stats> end
+	<closeif> ::== end
+<asgnstat> ::== <var> <asgnop> <bool>
+<asgnop> ::==  = | += | -= | *= | /=
+<iostat> ::== In >> <vlist>
+<iostat> ::== Out << <iostatopt1>
+	<iostatopt1> ::== <prlist> <iostatopt2>
+		<iostatopt2> ::== << Line
+		<iostatopt2> ::== ε
+	<iostatopt1> ::== Line
+<callstat> ::== <id> ( <callclose>
+	<callclose> ::== <elist> )
+	<callclose> ::== )
+<returnstat> ::== return <returnval>
+	<returnval> ::== void
+	<returnval> ::== <expr>
+<vlist> ::== <var> <vlistopt>
+	<vlistopt> ::== , <vlist>
+	<vlistopt> ::== ε
+<var> ::== <id> <varopt1>
+	<varopt1> ::== [ <expr> ] <varopt2>
+		<varopt2> ::== . <id>
+		<varopt2> ::== ε
+	<varopt1> ::== ε
+<elist> ::== <bool> <elistopt>
+	<elistopt> ::== , <elist>
+	<elistopt> ::== ε
+<bool> ::== <rel> <bool'>
+	<bool'> ::== <logop> <bool>
+	<bool'> ::== ε
+<rel> ::== <expr> <relopt>
+	<relopt> ::== <relop> <expr>
+	<relopt> ::== ε
+<rel> ::== not <expr> <relop> <expr>
+<logop> ::== and | or | xor
+<relop> ::==  == | != | > | < | <= | >=
+# watch out for the - ordering on tree. I made an invert function to patch it
+<expr> ::== <term> <expr'>
+	<expr'> ::== + <expr>
+	<expr'> ::== - <expr>
+	<expr'> ::== ε
+<term> ::== <fact> <term'>
+	<term'> ::== * <term>
+	<term'> ::== / <term>
+	<term'> ::== % <term>
+	<term'> ::== ε
+<fact> ::== <exponent> <factopt>
+	<factopt> ::== ^ <fact>
+	<factopt> ::== ε
+<exponent> ::== <intlit> | <reallit> | true | false | ( <bool> ) | <id> <expclose>
+	<expclose> ::== ( <fnclose> | <varopt1>
+# this is identical to callstat
+<fncall> ::== <id> ( <fnclose>
+	<fnclose> ::== <elist> )
+	<fnclose> ::== )
+<prlist> ::== <printitem> <prlistopt>
+	<prlistopt> ::== , <prlist>
+	<prlistopt> ::== ε
+<printitem> ::== <expr> | <string>
+
+
+--ruled out ambiguities:
+<rel>'s <expr> can't form "not <expr>"
+fncall is identical to callstat, but cannot be a statement on its own

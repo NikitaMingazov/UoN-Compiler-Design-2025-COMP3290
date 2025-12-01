@@ -1,0 +1,50 @@
+/**
+  performs an XOR on the two input booleans
+  I only noticed xor was a keyword after finishing this, but this is still a valid test case
+  input formatting: ( x,y ∈ {0,1} )
+x
+y
+**/
+CD25 softwareXOR
+main
+	result : boolean,
+	a : boolean,
+	b : boolean,
+	x : integer,
+	y : integer,
+	nota : boolean,
+	notb : boolean
+begin
+	In >> x; /-- "true" can't be used as an input so 1|0 is passed in instead.
+	if (x == 1)
+		a = true;
+	else
+		a = false;
+	end
+	In >> y;
+	if (y == 1)
+		b = true;
+	else
+		b = false;
+	end
+	/-- ( a or b ) and ( not a or not b )
+	/-- fuck this language, I have to do this to NOT a boolean
+	notb = b;
+	if (notb)
+		notb = false;
+	else
+		notb = true;
+	end
+	nota = a;
+	if (nota)
+		nota = false;
+	else
+		nota = true;
+	end
+	result = ( a or b ) and ( nota or notb );
+	if (result)
+		Out << "It is true" << Line;
+	else
+		Out << "It is false" << Line;
+	end
+end CD25 softwareXOR

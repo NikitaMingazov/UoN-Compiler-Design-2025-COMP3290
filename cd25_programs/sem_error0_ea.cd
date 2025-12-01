@@ -1,0 +1,13 @@
+cd25 EaLord
+constants
+	ref is true
+main
+	i : boolean
+begin
+	Out << "Ea is the ";
+	if (ref)
+		Out << "Lord of the Depths" << Line;
+	else
+		Out << "Sword of Rupture" << Line;
+	end
+End CD25 EaSword

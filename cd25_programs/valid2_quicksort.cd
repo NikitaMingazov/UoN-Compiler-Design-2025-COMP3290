@@ -1,0 +1,117 @@
+/**
+An implementation of quicksort for reals in CD25
+input format: (N ∈ [1,30], x_k ∈ R)
+N
+x_1
+...
+x_N
+**/
+CD25 QuickSort
+constants
+	M is 30 /-- maximum number of values to sort
+types
+	scalar is
+		val : real
+	end
+
+	RealArray is array[M] of scalar end
+arrays
+	unsorted : RealArray,
+	sorted : RealArray
+
+func quicksort (inplace: RealArray, start : integer, endindex : integer) : void
+	pivot : integer
+begin
+	if (start >= endindex) /-- array has less than two elements, nothing to do
+		return void;
+	end
+	pivot = divideArray(inplace, start, endindex);
+	quicksort(inplace, start, pivot-1); /-- the pivot is now in place, recursively sort the other segments
+	quicksort(inplace, pivot+1, endindex);
+	return void;
+end
+
+/-- for reference, see the Romanian quick sort dance
+/-- algorithm: take the leftmost element to be the pivot, and step from the right edge until on an item smaller than the pivot, in which case they are swapped
+/-- iteration then follows in the other direction from where the pivot was before, but now swapping if larger than pivot (the cursor approaches the pivot while preserving invariants over the values it has passed)
+/-- when the pivot and cursor are the same element, each element to the right is larger or equal to pivot, and the left is smaller or equal, and the division step is done.
+func divideArray (inplace: RealArray, start : integer, endindex : integer) : integer
+	pivotIndex : integer,
+	pivotValue : real,
+	cursor : integer,
+	swap : integer /-- tmp used to swap two integers
+begin
+	pivotIndex = start;
+	pivotValue = inplace[start].val;
+	repeat (cursor = endindex)
+		if (cursor > pivotIndex) /-- cursor is to the right
+			if (inplace[cursor].val < pivotValue) /-- cursor is smaller, swap with pivot
+				inplace[pivotIndex] = inplace[cursor];
+				inplace[cursor].val = pivotValue;
+				swap = cursor;
+				cursor = pivotIndex;
+				pivotIndex = swap;
+				cursor += 1; /-- now cursor is to the left, so step right
+			else
+				cursor -= 1; /-- still to the right, step left
+			end
+		/-- (the case where cursor == pivotindex is handled by the repeat ending)
+		else /-- cursor is to the left
+			if (inplace[cursor].val > pivotValue) /-- cursor is larger, swap
+				inplace[pivotIndex] = inplace[cursor];
+				inplace[cursor].val = pivotValue;
+				swap = cursor;
+				cursor = pivotIndex;
+				pivotIndex = swap;
+				cursor -= 1;
+			else
+				cursor += 1;
+			end
+		end
+	until pivotIndex == cursor;
+	return pivotIndex;
+end
+
+/**
+/-- wrapper function for recursion (self-referential recursion is not CD25 standard, but my compiler does it just fine, so I don't need this)
+func quicksortR (inplace: RealArray, start : integer, endindex : integer) : void
+begin
+	quicksort(inplace, start, endindex);
+	return void;
+end
+**/
+
+/-- this function was contrived for 1A.e) iii const parameter and would not otherwise exist
+func sortedCopyInto(const source : RealArray, destination : RealArray, length : integer) : void
+begin
+	destination = source;
+	quicksort(destination, 0, length-1);
+	return void;
+end
+
+main
+	N : integer, /-- number of values
+	i : integer /-- index of iteration in array
+begin
+	In >> N;
+	if (N > M)
+		Out << "Error: Maximum of", M, " values. The list has been truncated to the first", M,"." << Line;
+		N = M; /-- keeping N within bounds of the array
+	end
+	for (i = 0; i < N)
+		In >> unsorted[i].val;
+		i += 1;
+	end
+	/-- pad array with 0s to avoid array copy error
+	/-- todo: zero-initialise arrays
+	for (i = N; i < M)
+		unsorted[i].val = 0.0;
+		i += 1;
+	end
+	sortedCopyInto(unsorted, sorted, N);
+	Out << "Unsorted  |  Sorted" << Line;
+	for (i = 0; i < N)
+		Out << unsorted[i].val , "  | ", sorted[i].val << Line;
+		i += 1;
+	end
+end CD25 QuickSort
