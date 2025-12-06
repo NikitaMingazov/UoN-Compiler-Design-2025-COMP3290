@@ -1,7 +1,17 @@
 /*
   Takes a CD25 file and provides a token iterator
 */
-#define _GNU_SOURCE // strdup
+#include <stddef.h>
+#include <string.h>
+#include <stdlib.h>
+static char* strdup(const char* s) {
+	size_t len = strlen(s) + 1;
+	char* dup = malloc(len);
+	if (dup) {
+		memcpy(dup, s, len);
+	}
+	return dup;
+}
 
 #include "lexer.h"
 #include "token.h"

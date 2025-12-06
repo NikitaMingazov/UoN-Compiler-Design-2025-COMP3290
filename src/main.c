@@ -1,7 +1,5 @@
 // vimargs ../programs/valid0_helloworld.cd
 
-#define _GNU_SOURCE
-
 #include "lib/sds.h"
 #include "parser.h"
 #include "semantic_analysis.h"
@@ -11,6 +9,15 @@
 #include <stdlib.h>
 #include <libgen.h>
 #include <string.h>
+
+static char* strdup(const char* s) {
+	size_t len = strlen(s) + 1;
+	char* dup = malloc(len);
+	if (dup) {
+		memcpy(dup, s, len);
+	}
+	return dup;
+}
 
 /* todos:
    destructor for attribute

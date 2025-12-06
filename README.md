@@ -10,7 +10,7 @@ The target code is SM25 (Stack Machine 25), which is interpreted by the simulato
 
 # Usage
 
-Run the makefile in /src with "make" in a terminal to build the compiler executable. Note that this might only work on GNU/Linux due to a GNU header being imported for a utility function, other platforms like cygwin haven't been tested.
+Run the makefile in /src with "make" in a terminal to build the compiler executable.
 
 The compiler takes a source file as argument, prints any errors or warnings for the compilation and creates in the directory of the compiler executable a .mod SM25 bytecode module and a .lst listing file for the source code and any warnings/errors.
 

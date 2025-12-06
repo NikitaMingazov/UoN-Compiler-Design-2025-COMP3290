@@ -30,18 +30,18 @@ allocations signifies the size of the block, like so:
 func allocInt (numallocated : integer) : integer
 	i : integer,
 	j : integer,
-	continue : boolean
+	notBreak : boolean
 begin
-	continue = true;
+	notBreak = true;
 	repeat (i = 0)
 		if (allocations[i].val != 0)
 			i += allocations[i].val;
 		else
-			for (j = 0; not_break and j < numallocated and i+j < heapsize)
+			for (j = 0; notBreak and j < numallocated and i+j < heapsize)
 				if (allocations[i+j].val != 0)
 					/--i += allocations[i+j].val + j - 1; /-- compiler parsing bug here?
 					i += allocations[i+j].val + j;
-					not_break = false; /-- break;
+					notBreak = false; /-- break;
 				else
 					j += 1;
 				end
