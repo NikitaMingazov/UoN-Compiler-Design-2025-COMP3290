@@ -1,0 +1,4 @@
+AST -> three address code (C-compatible)
+TAC -> asm
+
+make a fork of codegen, where address labels are intact and stack replaced by linear operations.

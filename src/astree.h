@@ -38,6 +38,9 @@ void astree_free(ASTree *tree);
 // 	LinkedList/*attribute*/ *parameters; // for functions
 // };
 
+// data is disambiguated thus:
+// if type is struct, linkedlist*<element>
+// if type is function, linkedlist*<attribute>
 typedef struct attribute {
 	enum symbol_type type;
 	void *data; // Symbol*, LinkedList*<attribute>, LinkedList*<element>

@@ -1,14 +1,17 @@
-// vimargs ../testprograms/valid6_heap.cd
-
+/*
+   compiles a CD25 AST to SM25 bytecode
+   does not use TAC, because it was out of scope of the uni project
+*/
+#include "sm25_code_generation.h"
+#include "opcode.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
-#include "lib/sds.h"
-#include "lib/defs.h"
-#include "lib/hashmap.h"
-#include "code_generation.h"
-#include "symboltable.h"
+#include "../lib/sds.h"
+#include "../lib/defs.h"
+#include "../lib/hashmap.h"
+#include "../symboltable.h"
 #include <stdarg.h>
 
 enum addresstypes {
@@ -266,11 +269,11 @@ void push_instruction(Codegen *cdg, int type, int val) {
 // todo: int to str conversion for word-sized ints?
 void push_int_by_val(Codegen *cdg, int val) {
 	if (val == 0) {
-		push_instruction(cdg, 3, 0);
-	} else if (val <= 255) {
-		push_instruction(cdg, 41, val);
-	} else if (val <= 65535) {
-		push_instruction(cdg, 42, val);
+		push_instruction(cdg, ZERO, 0);
+	} else if (val <= 0xFF) {
+		push_instruction(cdg, LB, val);
+	} else if (val <= 0xFFFF) {
+		push_instruction(cdg, LH, val);
 	}
 }
 
@@ -282,7 +285,7 @@ static int unscoped_symbol_equals(const Symbol *s1, const Symbol *s2) {
 void codegen_var_push(Codegen *cdg, ASTNode *node) {
 	if (node->type == NARRV) {
 		codegen_push_adr(cdg, node);
-		push_instruction(cdg, 40, 0);
+		push_instruction(cdg, L, 0);
 		return;
 	}
 	if (node->type == NAELT)
@@ -292,9 +295,9 @@ void codegen_var_push(Codegen *cdg, ASTNode *node) {
 		int address = 8 * *(int*)hashmap_get(cdg->symbol_offset_map, node->symbol_value);
 		if (node->symbol_value->scope == cdg->scope_of_main) {
 			address += cdg->global_array_bytes + 8*cdg->num_global_arrays;
-			push_instruction(cdg, 81, address);
+			push_instruction(cdg, LV1, address);
 		} else
-			push_instruction(cdg, 82, address);
+			push_instruction(cdg, LV2, address);
 	} else { // global
 		Symbol *globscoped = malloc(sizeof(Symbol));
 		*globscoped = *(node->symbol_value);
@@ -303,11 +306,11 @@ void codegen_var_push(Codegen *cdg, ASTNode *node) {
 		switch (node->symbol_type) {
 			case SINT:
 				linkedlist_push_tail(cdg->int_offsets, offset);
-				push_instruction(cdg, 80, AINT);
+				push_instruction(cdg, LV0, AINT);
 				break;
 			case SREAL:
 				linkedlist_push_tail(cdg->real_offsets, offset);
-				push_instruction(cdg, 80, AREAL);
+				push_instruction(cdg, LV0, AREAL);
 				break;
 		}
 		free(globscoped);
@@ -325,7 +328,7 @@ void codegen_numeric_push(Codegen *cdg, ASTNode *node) {
 			if (value <= 65535) {
 				push_int_by_val(cdg, value);
 			} else {
-				push_instruction(cdg, 80, AINT);
+				push_instruction(cdg, LV0, AINT);
 				temp = node->symbol_value;
 				if (hashmap_contains(cdg->symbol_offset_map, temp)) {
 					offset = (int*)hashmap_get(cdg->symbol_offset_map, temp);
@@ -342,7 +345,7 @@ void codegen_numeric_push(Codegen *cdg, ASTNode *node) {
 			sdsfree(glyph);
 			return;
 		case NFLIT:
-			push_instruction(cdg, 80, AREAL);
+			push_instruction(cdg, LV0, AREAL);
 			temp = node->symbol_value;
 			if (hashmap_contains(cdg->symbol_offset_map, temp)) {
 				offset = (int*)hashmap_get(cdg->symbol_offset_map, temp);
@@ -370,30 +373,30 @@ void codegen_numeric_push(Codegen *cdg, ASTNode *node) {
 	codegen_numeric_push(cdg, node->right_child);
 	switch (node->type) {
 		case NADD:
-			push_instruction(cdg, 11, 0);
+			push_instruction(cdg, ADD, 0);
 			break;
 		case NSUB:
-			push_instruction(cdg, 12, 0);
+			push_instruction(cdg, SUB, 0);
 			break;
 		case NMUL:
-			push_instruction(cdg, 13, 0);
+			push_instruction(cdg, MUL, 0);
 			break;
 		case NDIV:
-			push_instruction(cdg, 14, 0);
+			push_instruction(cdg, DIV, 0);
 			break;
 		case NMOD:
-			push_instruction(cdg, 15, 0);
+			push_instruction(cdg, REM, 0);
 			break;
 		case NPOW:
-			push_instruction(cdg, 16, 0);
+			push_instruction(cdg, POW, 0);
 			break;
 	}
 }
 
 void codegen_printitem(Codegen *cdg, ASTNode *node) {
 	if (node->type == NSTRG) {
-		push_instruction(cdg, 90, ASTR);
-		push_instruction(cdg, 63, 0);
+		push_instruction(cdg, LA0, ASTR);
+		push_instruction(cdg, STRPR, 0);
 		int *stroffset = malloc(sizeof(int));
 		*stroffset = cdg->str_bytes;
 		linkedlist_push_tail(cdg->str_offsets, stroffset);
@@ -402,7 +405,7 @@ void codegen_printitem(Codegen *cdg, ASTNode *node) {
 		cdg->str_bytes += temp->index.len + 1;
 	} else {
 		codegen_numeric_push(cdg, node);
-		push_instruction(cdg, 62, 0);
+		push_instruction(cdg, VALPR, 0);
 	}
 }
 
@@ -421,36 +424,36 @@ void codegen_noutp(Codegen *cdg, ASTNode *node) {
 
 void codegen_noutl(Codegen *cdg, ASTNode *node) {
 	if (!node->left_child) {
-		push_instruction(cdg, 65, 0);
+		push_instruction(cdg, NEWLN, 0);
 		return;
 	}
 	codegen_prlist(cdg, node->left_child);
-	push_instruction(cdg, 65, 0);
+	push_instruction(cdg, NEWLN, 0);
 }
 
 void codegen_input_var(Codegen *cdg, ASTNode *node) {
 	if (node->type == NSIMV) {
 		if (node->symbol_value->scope == cdg->scope_of_main) {
 			int offset = cdg->global_array_bytes + 8*cdg->num_global_arrays + 8 * *(int*)hashmap_get(cdg->symbol_offset_map, node->symbol_value);
-			push_instruction(cdg, 91, offset);
+			push_instruction(cdg, LA1, offset);
 		} else {
 			int offset = 8 * *(int*)hashmap_get(cdg->symbol_offset_map, node->symbol_value);
-			push_instruction(cdg, 92, offset);
+			push_instruction(cdg, LA2, offset);
 		}
 		if (node->symbol_type == SREAL) {
-			push_instruction(cdg, 60, 0);
+			push_instruction(cdg, READF, 0);
 		} else {
-			push_instruction(cdg, 61, 0);
+			push_instruction(cdg, READI, 0);
 		}
-		push_instruction(cdg, 43, 0);
+		push_instruction(cdg, ST, 0);
 	} else if (node->type == NARRV) {
 		Attribute *array_atr = astree_get_attribute(cdg->ast, node->left_child->symbol_value);
 		codegen_array_push(cdg, node->left_child);
 		codegen_numeric_push(cdg, node->right_child);
 		int struct_size = * (int*)hashmap_get(cdg->array_structsize_map, array_atr->data);
 		if (struct_size != 1) {
-			push_instruction(cdg, 41, struct_size);
-			push_instruction(cdg, 13, 0);
+			push_instruction(cdg, LB, struct_size);
+			push_instruction(cdg, MUL, 0);
 		}
 		int struct_offset = 0;
 		Attribute *struct_atr = astree_get_attribute(cdg->ast, array_atr->data);
@@ -467,15 +470,15 @@ void codegen_input_var(Codegen *cdg, ASTNode *node) {
 		}
 		if (struct_offset != 0) {
 			push_int_by_val(cdg, struct_offset);
-			push_instruction(cdg, 11, 0);
+			push_instruction(cdg, ADD, 0);
 		}
-		push_instruction(cdg, 54, 0);
+		push_instruction(cdg, INDEX, 0);
 		if (node->symbol_type == SREAL) {
-			push_instruction(cdg, 60, 0);
+			push_instruction(cdg, READF, 0);
 		} else {
-			push_instruction(cdg, 61, 0);
+			push_instruction(cdg, READI, 0);
 		}
-		push_instruction(cdg, 43, 0);
+		push_instruction(cdg, ST, 0);
 	}
 }
 
@@ -493,25 +496,25 @@ void codegen_ninput(Codegen *cdg, ASTNode *node) {
 }
 
 void codegen_relop_push(Codegen *cdg, ASTNode *node) {
-	push_instruction(cdg, 12, 0);
+	push_instruction(cdg, SUB, 0);
 	switch (node->type) {
 		case NGRT:
-			push_instruction(cdg, 21, 0);
+			push_instruction(cdg, GT, 0);
 			break;
 		case NGEQ:
-			push_instruction(cdg, 22, 0);
+			push_instruction(cdg, GE, 0);
 			break;
 		case NLSS:
-			push_instruction(cdg, 23, 0);
+			push_instruction(cdg, LT, 0);
 			break;
 		case NLEQ:
-			push_instruction(cdg, 24, 0);
+			push_instruction(cdg, LE, 0);
 			break;
 		case NEQL:
-			push_instruction(cdg, 25, 0);
+			push_instruction(cdg, EQ, 0);
 			break;
 		case NNEQ:
-			push_instruction(cdg, 26, 0);
+			push_instruction(cdg, NE, 0);
 			break;
 	}
 }
@@ -519,10 +522,10 @@ void codegen_relop_push(Codegen *cdg, ASTNode *node) {
 void codegen_boolean_push(Codegen *cdg, ASTNode *node) {
 	switch (node->type) {
 		case NFALS:
-			push_instruction(cdg, 4, 0);
+			push_instruction(cdg, FALSE, 0);
 			break;
 		case NTRUE:
-			push_instruction(cdg, 5, 0);
+			push_instruction(cdg, TRUE, 0);
 			break;
 		case NSIMV:
 		case NARRV:
@@ -532,20 +535,20 @@ void codegen_boolean_push(Codegen *cdg, ASTNode *node) {
 			codegen_numeric_push(cdg, node->left_child);
 			codegen_numeric_push(cdg, node->right_child);
 			codegen_relop_push(cdg, node->middle_child);
-			push_instruction(cdg, 34, 0);
+			push_instruction(cdg, NOT, 0);
 			break;
 		case NBOOL:
 			codegen_boolean_push(cdg, node->left_child);
 			codegen_boolean_push(cdg, node->right_child);
 			switch (node->middle_child->type) {
 				case NAND:
-					push_instruction(cdg, 31, 0);
+					push_instruction(cdg, AND, 0);
 					break;
 				case NOR:
-					push_instruction(cdg, 32, 0);
+					push_instruction(cdg, OR, 0);
 					break;
 				case NXOR:
-					push_instruction(cdg, 33, 0);
+					push_instruction(cdg, XOR, 0);
 					break;
 			}
 			break;
@@ -577,7 +580,7 @@ void codegen_push_adr(Codegen *cdg, ASTNode *node) {
 			int struct_size = * (int*)hashmap_get(cdg->array_structsize_map, array_atr->data);
 			if (struct_size != 1) {
 				push_int_by_val(cdg, struct_size);
-				push_instruction(cdg, 13, 0);
+				push_instruction(cdg, MUL, 0);
 			}
 			int struct_offset = 0;
 			Attribute *struct_atr = astree_get_attribute(cdg->ast, array_atr->data);
@@ -595,17 +598,17 @@ void codegen_push_adr(Codegen *cdg, ASTNode *node) {
 			// this should be in an optimiser module, if there were one
 			if (struct_offset != 0) {
 				push_int_by_val(cdg, struct_offset);
-				push_instruction(cdg, 11, 0);
+				push_instruction(cdg, ADD, 0);
 			}
-			push_instruction(cdg, 54, 0);
+			push_instruction(cdg, INDEX, 0);
 			break;
 		case NSIMV:
 			int offset = 8 * *(int*)hashmap_get(cdg->symbol_offset_map, node->symbol_value);
 			if (node->symbol_value->scope == cdg->scope_of_main) {
 				offset += cdg->global_array_bytes + 8*cdg->num_global_arrays;
-				push_instruction(cdg, 91, offset);
+				push_instruction(cdg, LA1, offset);
 			} else
-				push_instruction(cdg, 92, offset);
+				push_instruction(cdg, LA2, offset);
 			break;
 	}
 }
@@ -616,12 +619,12 @@ void codegen_nasgn(Codegen *cdg, ASTNode *node) {
 		case SREAL:
 			codegen_push_adr(cdg, node->left_child);
 			codegen_numeric_push(cdg, node->right_child);
-			push_instruction(cdg, 43, 0);
+			push_instruction(cdg, ST, 0);
 			break;
 		case SBOOL:
 			codegen_push_adr(cdg, node->left_child);
 			codegen_boolean_push(cdg, node->right_child);
-			push_instruction(cdg, 43, 0);
+			push_instruction(cdg, ST, 0);
 			break;
 		case SARRAY:
 			Attribute *array_atr0 = astree_get_attribute(cdg->ast, node->left_child->symbol_value);
@@ -630,12 +633,12 @@ void codegen_nasgn(Codegen *cdg, ASTNode *node) {
 			for (int i = 0; i < array_size; ++i) {
 				codegen_array_push(cdg, node->left_child);
 				push_int_by_val(cdg, i);
-				push_instruction(cdg, 54, 0);
+				push_instruction(cdg, INDEX, 0);
 				codegen_array_push(cdg, node->right_child);
 				push_int_by_val(cdg, i);
-				push_instruction(cdg, 54, 0);
-				push_instruction(cdg, 40, 0);
-				push_instruction(cdg, 43, 0);
+				push_instruction(cdg, INDEX, 0);
+				push_instruction(cdg, L, 0);
+				push_instruction(cdg, ST, 0);
 			}
 			break;
 		case SSTRUCT:
@@ -647,22 +650,22 @@ void codegen_nasgn(Codegen *cdg, ASTNode *node) {
 				codegen_numeric_push(cdg, node->left_child->right_child);
 				if (struct_size != 1) {
 					push_int_by_val(cdg, struct_size);
-					push_instruction(cdg, 13, 0);
+					push_instruction(cdg, MUL, 0);
 				}
 				push_int_by_val(cdg, field);
-				push_instruction(cdg, 11, 0);
-				push_instruction(cdg, 54, 0);
+				push_instruction(cdg, ADD, 0);
+				push_instruction(cdg, INDEX, 0);
 				codegen_array_push(cdg, node->right_child->left_child);
 				codegen_numeric_push(cdg, node->right_child->right_child);
 				if (struct_size != 1) {
 					push_int_by_val(cdg, struct_size);
-					push_instruction(cdg, 13, 0);
+					push_instruction(cdg, MUL, 0);
 				}
 				push_int_by_val(cdg, field);
-				push_instruction(cdg, 11, 0);
-				push_instruction(cdg, 54, 0);
-				push_instruction(cdg, 40, 0);
-				push_instruction(cdg, 43, 0);
+				push_instruction(cdg, ADD, 0);
+				push_instruction(cdg, INDEX, 0);
+				push_instruction(cdg, L, 0);
+				push_instruction(cdg, ST, 0);
 			}
 			break;
 	}
@@ -672,16 +675,17 @@ void codegen_nasgnop(Codegen *cdg, ASTNode *node) {
 	int offset = 8 * *(int*)hashmap_get(cdg->symbol_offset_map, node->left_child->symbol_value);
 	if (node->left_child->symbol_value->scope == cdg->scope_of_main) {
 		offset += cdg->global_array_bytes + 8*cdg->num_global_arrays;
-		push_instruction(cdg, 91, offset);
-	} else
-		push_instruction(cdg, 92, offset);
+		push_instruction(cdg, LA1, offset);
+	} else {
+		push_instruction(cdg, LA2, offset);
+	}
 	switch (node->type) {
 		case NPLEQ:
 		case NMNEQ:
 		case NSTEA:
 		case NDVEQ:
-			push_instruction(cdg, 56, 0);
-			push_instruction(cdg, 40, 0);
+			push_instruction(cdg, DUP, 0);
+			push_instruction(cdg, L, 0);
 			break;
 	}
 	switch (node->right_child->symbol_type) {
@@ -695,19 +699,19 @@ void codegen_nasgnop(Codegen *cdg, ASTNode *node) {
 	}
 	switch (node->type) {
 		case NPLEQ:
-			push_instruction(cdg, 11, offset);
+			push_instruction(cdg, ADD, offset);
 			break;
 		case NMNEQ:
-			push_instruction(cdg, 12, offset);
+			push_instruction(cdg, SUB, offset);
 			break;
 		case NSTEA:
-			push_instruction(cdg, 13, offset);
+			push_instruction(cdg, MUL, offset);
 			break;
 		case NDVEQ:
-			push_instruction(cdg, 14, offset);
+			push_instruction(cdg, DIV, offset);
 			break;
 	}
-	push_instruction(cdg, 43, 0);
+	push_instruction(cdg, ST, 0);
 }
 
 void anchor_jump(Codegen *cdg, int arr_index) {
@@ -720,21 +724,21 @@ void anchor_jump(Codegen *cdg, int arr_index) {
 
 void codegen_if(Codegen *cdg, ASTNode *node) {
 	int arr_index = cdg->num_jumps++;
-	push_instruction(cdg, 90, AJUMP);
+	push_instruction(cdg, LA0, AJUMP);
 	codegen_boolean_push(cdg, node->left_child);
-	push_instruction(cdg, 36, 0);
+	push_instruction(cdg, BF, 0);
 	codegen_stats(cdg, node->right_child);
 	anchor_jump(cdg, arr_index);
 }
 
 void codegen_ifelse(Codegen *cdg, ASTNode *node) {
 	int arr_index = cdg->num_jumps++;
-	push_instruction(cdg, 90, AJUMP);
+	push_instruction(cdg, LA0, AJUMP);
 	codegen_boolean_push(cdg, node->left_child);
-	push_instruction(cdg, 36, 0); // first jump
+	push_instruction(cdg, BF, 0); // first jump
 	codegen_stats(cdg, node->middle_child);
-	push_instruction(cdg, 90, AJUMP);
-	push_instruction(cdg, 37, 0); // second jump
+	push_instruction(cdg, LA0, AJUMP);
+	push_instruction(cdg, BR, 0); // second jump
 
 	anchor_jump(cdg, arr_index); // first jump
 	arr_index = cdg->num_jumps++;
@@ -756,13 +760,13 @@ void codegen_for(Codegen *cdg, ASTNode *node) {
 	codegen_asgnlist(cdg, node->left_child);
 	int start_anchor = cdg->inst_bytes; // second jump
 	int arr_index = cdg->num_jumps++;
-	push_instruction(cdg, 90, AJUMP);
+	push_instruction(cdg, LA0, AJUMP);
 	codegen_boolean_push(cdg, node->middle_child);
-	push_instruction(cdg, 36, 0); // first jump
+	push_instruction(cdg, BF, 0); // first jump
 	codegen_stats(cdg, node->right_child);
 	// jump back to start
-	push_instruction(cdg, 90, start_anchor);
-	push_instruction(cdg, 37, 0); // second jump
+	push_instruction(cdg, LA0, start_anchor);
+	push_instruction(cdg, BR, 0); // second jump
 	anchor_jump(cdg, arr_index); // first jump
 }
 
@@ -770,9 +774,9 @@ void codegen_repeat(Codegen *cdg, ASTNode *node) {
 	codegen_asgnlist(cdg, node->left_child);
 	int start_anchor = cdg->inst_bytes;
 	codegen_stats(cdg, node->middle_child);
-	push_instruction(cdg, 90, start_anchor);
+	push_instruction(cdg, LA0, start_anchor);
 	codegen_boolean_push(cdg, node->right_child);
-	push_instruction(cdg, 36, 0);
+	push_instruction(cdg, BF, 0);
 }
 
 void codegen_array_push(Codegen *cdg, ASTNode *node) {
@@ -783,10 +787,10 @@ void codegen_array_push(Codegen *cdg, ASTNode *node) {
 	globscoped->scope = 0;
 	if (hashmap_get(cdg->symbol_offset_map, node->symbol_value)) {
 		arr_offset = 8 * *(int*)hashmap_get(cdg->symbol_offset_map, node->symbol_value);
-		push_instruction(cdg, 82, arr_offset);
+		push_instruction(cdg, LV2, arr_offset);
 	} else {
 		arr_offset = 8 * *(int*)hashmap_get(cdg->symbol_offset_map, globscoped);
-		push_instruction(cdg, 81, arr_offset);
+		push_instruction(cdg, LV1, arr_offset);
 	}
 	free(globscoped);
 }
@@ -824,29 +828,29 @@ void codegen_callstat(Codegen *cdg, ASTNode *node) {
 	int paramcount = 0;
 	codegen_parameters(cdg, node->left_child, &paramcount);
 	if (paramcount == 0) {
-		push_instruction(cdg, 3, 0);
-	} else if (paramcount <= 255) {
-		push_instruction(cdg, 41, paramcount);
-	} else if (paramcount <= 65535) {
-		push_instruction(cdg, 42, paramcount);
+		push_instruction(cdg, ZERO, 0);
+	} else if (paramcount <= 0xFF) {
+		push_instruction(cdg, LB, paramcount);
+	} else if (paramcount <= 0xFFFF) {
+		push_instruction(cdg, LH, paramcount);
 	}
-	push_instruction(cdg, 90, AFUNC);
-	push_instruction(cdg, 72, 0);
+	push_instruction(cdg, LA0, AFUNC);
+	push_instruction(cdg, JS2, 0);
 }
 
 void codegen_fncall(Codegen *cdg, ASTNode *node) {
 	// the return address
-	push_instruction(cdg, 41, 1);
-	push_instruction(cdg, 52, 0);
+	push_instruction(cdg, LB, 1);
+	push_instruction(cdg, ALLOC, 0);
 	codegen_callstat(cdg, node);
 }
 
 void codegen_returnstat(Codegen *cdg, ASTNode *node) {
 	if (node->left_child) {
 		codegen_expr_push(cdg, node->left_child);
-		push_instruction(cdg, 70, 0);
+		push_instruction(cdg, RVAL, 0);
 	}
-	push_instruction(cdg, 71, 0);
+	push_instruction(cdg, RETN, 0);
 }
 
 void codegen_stat(Codegen *cdg, ASTNode *node) {
@@ -906,22 +910,22 @@ void codegen_sdecl(Codegen *cdg, ASTNode *node) {
 		case SREAL:
 			// todo: ask what happens to uninitialised reals/bools
 			offset = cdg->global_array_bytes + 8*cdg->num_global_arrays + 8 * *(int*)hashmap_get(cdg->symbol_offset_map, node->symbol_value);
-			push_instruction(cdg, 91, offset);
-			push_instruction(cdg, 3, 0);
-			push_instruction(cdg, 7, 0);
-			push_instruction(cdg, 43, 0);
+			push_instruction(cdg, LA1, offset);
+			push_instruction(cdg, ZERO, 0);
+			push_instruction(cdg, TYPE, 0);
+			push_instruction(cdg, ST, 0);
 			break;
 		case SINT:
 			offset = cdg->global_array_bytes + 8*cdg->num_global_arrays + 8 * *(int*)hashmap_get(cdg->symbol_offset_map, node->symbol_value);
-			push_instruction(cdg, 91, offset);
-			push_instruction(cdg, 3, 0);
-			push_instruction(cdg, 43, 0);
+			push_instruction(cdg, LA1, offset);
+			push_instruction(cdg, ZERO, 0);
+			push_instruction(cdg, ST, 0);
 			break;
 		case SBOOL: // assumption: uninitialised booleans are false
 			offset = cdg->global_array_bytes + 8*cdg->num_global_arrays + 8 * *(int*)hashmap_get(cdg->symbol_offset_map, node->symbol_value);
-			push_instruction(cdg, 91, offset);
-			push_instruction(cdg, 4, 0);
-			push_instruction(cdg, 43, 0);
+			push_instruction(cdg, LA1, offset);
+			push_instruction(cdg, FALSE, 0);
+			push_instruction(cdg, ST, 0);
 			break;
 	}
 }
@@ -944,8 +948,8 @@ void codegen_slist(Codegen *cdg, ASTNode *node) {
 	}
 	add_var_offset(cdg, cursor, num_vars);
 	num_vars++;
-	push_instruction(cdg, 41, num_vars);
-	push_instruction(cdg, 52, 0);
+	push_instruction(cdg, LB, num_vars);
+	push_instruction(cdg, ALLOC, 0);
 	cursor = node;
 	while (cursor->type == NSDLST) {
 		codegen_sdecl(cdg, cursor->left_child);
@@ -1125,10 +1129,10 @@ void codegen_array(Codegen *cdg, ASTNode *node) {
 	*arr_offset = cdg->num_global_arrays;
 	hashmap_add(cdg->symbol_offset_map, node->symbol_value, arr_offset);
 	cdg->global_array_bytes += 8 * *(int*)hashmap_get(cdg->array_len_map, atr->data);
-	push_instruction(cdg, 91, 8*cdg->num_global_arrays++);
+	push_instruction(cdg, LA1, 8*cdg->num_global_arrays++);
 	int len = * (int*)hashmap_get(cdg->array_len_map, atr->data);
 	push_int_by_val(cdg, len);
-	push_instruction(cdg, 53, 0);
+	push_instruction(cdg, ARRAY, 0);
 }
 
 void codegen_arrays(Codegen *cdg, ASTNode *node) {
@@ -1140,7 +1144,7 @@ void codegen_arrays(Codegen *cdg, ASTNode *node) {
 		scan = scan->right_child;
 	}
 	push_int_by_val(cdg, count);
-	push_instruction(cdg, 52, 0);
+	push_instruction(cdg, ALLOC, 0);
 	while (node->type == NALIST) {
 		codegen_array(cdg, node->left_child);
 		node = node->right_child;
@@ -1169,15 +1173,15 @@ void codegen_decl(Codegen *cdg, ASTNode *node) {
 	int offset = 8 * *(int*)hashmap_get(cdg->symbol_offset_map, node->symbol_value);
 	switch (node->symbol_type) {
 		case SREAL:
-			push_instruction(cdg, 92, offset);
-			push_instruction(cdg, 3, 0);
-			push_instruction(cdg, 7, 0);
-			push_instruction(cdg, 43, 0);
+			push_instruction(cdg, LA2, offset);
+			push_instruction(cdg, ZERO, 0);
+			push_instruction(cdg, TYPE, 0);
+			push_instruction(cdg, ST, 0);
 			break;
 		case SINT:
-			push_instruction(cdg, 92, offset);
-			push_instruction(cdg, 3, 0);
-			push_instruction(cdg, 43, 0);
+			push_instruction(cdg, LA2, offset);
+			push_instruction(cdg, ZERO, 0);
+			push_instruction(cdg, ST, 0);
 			break;
 		case SBOOL:
 			break;
@@ -1193,8 +1197,8 @@ void codegen_func_locals(Codegen *cdg, ASTNode* node) {
 		cursor = cursor->right_child;
 	}
 	add_var_offset(cdg, cursor, 2+num_vars++);
-	push_instruction(cdg, 41, num_vars);
-	push_instruction(cdg, 52, 0);
+	push_instruction(cdg, LB, num_vars);
+	push_instruction(cdg, ALLOC, 0);
 	cursor = node;
 	while (cursor->type == NDLIST) {
 		codegen_decl(cdg, cursor->left_child);
@@ -1222,12 +1226,12 @@ void codegen_funcs(Codegen *cdg, ASTNode* nfuncs) {
 		codegen_func(cdg, nfuncs);
 }
 
-void code_gen(char *mod_output, ASTree *ast) {
+void sm25_code_gen(char *mod_output, ASTree *ast) {
 	Codegen *cdg = codegen_create(mod_output, ast);
 	cdg->scope_of_main = ast->root->right_child->symbol_value->scope;
 	codegen_globals(cdg, ast->root->left_child);
 	codegen_main(cdg, ast->root->right_child);
-	push_instruction(cdg, 0, 0);
+	push_instruction(cdg, HALT, 0);
 	codegen_funcs(cdg, ast->root->middle_child);
 	// padding byte counter to word size (printing doesn't use this value, but constant addresses do)
 	cdg->str_bytes += cdg->str_bytes % 8 == 0

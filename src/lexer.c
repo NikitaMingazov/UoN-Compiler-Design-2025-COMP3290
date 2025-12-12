@@ -107,12 +107,12 @@ void lexer_free(Lexer *lex) {
 
 // helper function, no other module should be generating tokens
 Token *make_token(enum token_type type, char* val, int row, int col) {
-		Token *temp = malloc(sizeof(Token));
-		temp->type = type;
-		temp->val = val;
-		temp->row = row;
-		temp->col = col;
-		return temp;
+	Token *temp = malloc(sizeof(Token));
+	temp->type = type;
+	temp->val = val;
+	temp->row = row;
+	temp->col = col;
+	return temp;
 }
 
 // insert a sds into a cstr

@@ -1,8 +1,0 @@
-x = [ 3, 4, 5 ]
-x sums to: 12
-Allocated addresses:
-x= 0, y= 3, z= 7
-allocating a new array onto y to leak memory, but should fail due to no contiguous 4-block on heap
-ran out of heap memory
-(uninitialised) z = [ 3, 4, 5 ]
-(use after free) x = [ 1, 4, 8 ]

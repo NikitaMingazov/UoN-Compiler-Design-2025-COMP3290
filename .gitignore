@@ -1,5 +1,5 @@
 # the target binary
-a3
+cd25c
 *.o
 # listing files
 *.lst

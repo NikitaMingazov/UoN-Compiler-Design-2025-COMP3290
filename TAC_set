@@ -1,0 +1,43 @@
+TAC set (probably t. chatgpt [no floating point yet]):
+print a
+t = a
+t = a + b
+t = a - b
+t = a * b
+t = a / b (signed)
+t = a % b (signed)
+t = a ^ b
+t = !a
+t = a == b
+t = a != b
+t = a < b
+t = a <= b
+t = a > b
+t = a >= b
+label L1
+goto L1
+if t goto L1
+if !t goto L2t = call f, (arg1, arg2, …)
+call f, (args...)       ; for void functions
+return t
+return
+t = ptr + offset
+t = ptr - offset
+t = ptr + t2          ; generic add
+t = index_addr base, index, element_size
+
+nop
+comment "string"
+
+
+t = &x         ; address of local, global, or field
+t = load8 addr      ; load unsigned 8 bits
+t = load8s addr     ; load signed 8 bits
+t = load16 addr
+t = load16s addr
+t = load32 addr
+t = load64 addr
+store8  addr, t
+store16 addr, t
+store32 addr, t
+store64 addr, t

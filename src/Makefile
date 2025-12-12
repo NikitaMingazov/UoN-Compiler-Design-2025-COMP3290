@@ -1,10 +1,13 @@
 CC = gcc #-fsanitize=undefined
 CFLAGS = -std=c99 -lm -g -fmax-errors=1
-WARNINGCONFIG = -Wall -Wextra -pedantic
-# WARNINGCONFIG = -Wall -Wextra -Wno-unused-function -Wno-unused-variable -Wno-switch #-pedantic
-SOURCES = main.c code_generation.c semantic_analysis.c astree.c parser.c lexer.c lister.c lib/linkedlist.c lib/sds.c lib/hashmap.c
+WARNINGCONFIG = -Wall -Wextra -pedantic -Wno-switch
+SM25_TARGET = sm25_codegen/sm25_code_generation.c
+X86_TARGET = x86_codegen/x86_code_generation.c
+FRONTEND = threeaddresscode.c semantic_analysis.c astree.c parser.c lexer.c lister.c
+INCLUDES = lib/linkedlist.c lib/sds.c lib/hashmap.c
+SOURCES = $(SM25_TARGET) $(X86_TARGET) main.c $(FRONTEND) $(INCLUDES)
 OBJECTS = $(SOURCES:.c=.o)
-TARGET = a3
+TARGET = cd25c
 
 all: $(TARGET)
 
