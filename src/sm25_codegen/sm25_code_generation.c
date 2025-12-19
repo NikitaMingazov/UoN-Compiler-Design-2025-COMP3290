@@ -288,9 +288,6 @@ void codegen_var_push(Codegen *cdg, ASTNode *node) {
 		push_instruction(cdg, L, 0);
 		return;
 	}
-	if (node->type == NAELT)
-	// todo: struct value asignment
-		return;
 	if (hashmap_get(cdg->symbol_offset_map, node->symbol_value)) { // local
 		int address = 8 * *(int*)hashmap_get(cdg->symbol_offset_map, node->symbol_value);
 		if (node->symbol_value->scope == cdg->scope_of_main) {
@@ -412,6 +409,7 @@ void codegen_printitem(Codegen *cdg, ASTNode *node) {
 void codegen_prlist(Codegen *cdg, ASTNode *node) {
 	if (node->type == NPRLST) {
 		codegen_printitem(cdg, node->left_child);
+		push_instruction(cdg, SPACE, 0);
 		codegen_prlist(cdg, node->right_child);
 	} else {
 		codegen_printitem(cdg, node);
@@ -1183,7 +1181,10 @@ void codegen_decl(Codegen *cdg, ASTNode *node) {
 			push_instruction(cdg, ZERO, 0);
 			push_instruction(cdg, ST, 0);
 			break;
-		case SBOOL:
+		case SBOOL: // assumption: uninitialised booleans are false
+			push_instruction(cdg, LA2, offset);
+			push_instruction(cdg, FALSE, 0);
+			push_instruction(cdg, ST, 0);
 			break;
 	}
 }
