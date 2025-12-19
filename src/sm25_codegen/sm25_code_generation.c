@@ -409,7 +409,6 @@ void codegen_printitem(Codegen *cdg, ASTNode *node) {
 void codegen_prlist(Codegen *cdg, ASTNode *node) {
 	if (node->type == NPRLST) {
 		codegen_printitem(cdg, node->left_child);
-		push_instruction(cdg, SPACE, 0);
 		codegen_prlist(cdg, node->right_child);
 	} else {
 		codegen_printitem(cdg, node);
