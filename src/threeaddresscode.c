@@ -31,6 +31,26 @@ void tac_gen_stats(T_S *ts, ASTNode *node);
 void tac_gen_sdecl(T_S *ts, ASTNode *node);
 Adr tac_get_adr(T_S *ts, ASTNode *node);
 Adr tac_gen_fncall(T_S *ts, ASTNode *node);
+long *heap_long(long k);
+double *heap_double(double x);
+
+// abstracted away because I might want to use dynamic arrays later
+void append_int(T_S *ts, long val) {
+	linkedlist_push_tail(ts->tac->ints, heap_long(val));
+}
+
+void append_float(T_S *ts, double val) {
+	linkedlist_push_tail(ts->tac->floats, heap_double(val));
+}
+
+// takes ownership
+void append_sds(T_S *ts, sds str) {
+	linkedlist_push_tail(ts->tac->strings, str);
+}
+
+void append_line(T_S *ts, Line *line) {
+	linkedlist_push_tail(ts->tac->lines, line);
+}
 
 static sds sds_substr(const sds src, size_t start, size_t len) {
 	size_t src_len = sdslen(src);
@@ -163,7 +183,7 @@ Adr adr_of_int(T_S *ts, const int val) {
 	if (hashmap_get(ts->seen_intvals, heap_long(val))) {
 		adr = * (u16*) hashmap_get(ts->seen_intvals, heap_long(val));
 	} else {
-		linkedlist_push_tail(ts->tac->ints, heap_long(val));
+		append_int(ts, val);
 		adr = ts->int_counter++;
 		hashmap_add(ts->seen_intvals, heap_long(val), heap_u16(adr));
 	}
@@ -176,7 +196,7 @@ Adr adr_of_double(T_S *ts, double val) {
 		adr = * (u16*) hashmap_get(ts->seen_floatvals, heap_double(val));
 	} else {
 		adr = ts->float_counter;
-		linkedlist_push_tail(ts->tac->floats, heap_double(val));
+		append_float(ts, val);
 		hashmap_add(ts->seen_floatvals, heap_double(val), heap_long(ts->float_counter++));
 	}
 	return mkadr(A_FLIT, adr);
@@ -188,7 +208,7 @@ Adr adr_of_sds(T_S *ts, sds s) {
 	if (hashmap_get(ts->seen_strings, s)) {
 		adr = * (u16*) hashmap_get(ts->seen_strings, s);
 	} else {
-		linkedlist_push_tail(ts->tac->strings, sdsdup(s));
+		append_sds(ts, sdsdup(s));
 		adr = ts->string_counter++;
 
 		hashmap_add(ts->seen_strings, sdsdup(s), heap_u16(adr));
@@ -277,17 +297,17 @@ Adr tac_resolve_numeric(T_S *ts, ASTNode *node) {
 	Adr lhs = tac_resolve_numeric(ts, node->left_child);
 	if (promote_left) {
 		Adr tmp = mktmp(ts);
-		linkedlist_push_tail(ts->tac->lines, binary_line(O_ITOF, tmp, lhs));
+		append_line(ts, binary_line(O_ITOF, tmp, lhs));
 		lhs = tmp;
 	}
 	Adr rhs = tac_resolve_numeric(ts, node->right_child);
 	if (promote_right) {
 		Adr tmp = mktmp(ts);
-		linkedlist_push_tail(ts->tac->lines, binary_line(O_ITOF, tmp, rhs));
+		append_line(ts, binary_line(O_ITOF, tmp, rhs));
 		rhs = tmp;
 	}
 	Adr tmp = mktmp(ts);
-	linkedlist_push_tail(ts->tac->lines, ternary_line(op, tmp, lhs, rhs));
+	append_line(ts, ternary_line(op, tmp, lhs, rhs));
 	return tmp;
 }
 
@@ -317,10 +337,10 @@ Adr tac_resolve_boolean(T_S *ts, ASTNode *node) {
 	Adr rhs;
 	switch (node->type) {
 		case NFALS:
-			linkedlist_push_tail(ts->tac->lines, unary_line(O_FALSE, tmp));
+			append_line(ts, unary_line(O_FALSE, tmp));
 			break;
 		case NTRUE:
-			linkedlist_push_tail(ts->tac->lines, unary_line(O_TRUE, tmp));
+			append_line(ts, unary_line(O_TRUE, tmp));
 			break;
 		case NSIMV:
 		case NARRV:
@@ -330,9 +350,9 @@ Adr tac_resolve_boolean(T_S *ts, ASTNode *node) {
 			lhs = tac_resolve_numeric(ts, node->left_child);
 			rhs = tac_resolve_numeric(ts, node->right_child);
 			op = relop_at(node->middle_child);
-			linkedlist_push_tail(ts->tac->lines, ternary_line(op, tmp, lhs, rhs));
+			append_line(ts, ternary_line(op, tmp, lhs, rhs));
 			not_tmp = mktmp(ts);
-			linkedlist_push_tail(ts->tac->lines, binary_line(O_NOT, not_tmp, tmp));
+			append_line(ts, binary_line(O_NOT, not_tmp, tmp));
 			return not_tmp;
 			break;
 		case NBOOL:
@@ -350,7 +370,7 @@ Adr tac_resolve_boolean(T_S *ts, ASTNode *node) {
 					break;
 				default: break;
 			}
-			linkedlist_push_tail(ts->tac->lines, ternary_line(op, tmp, lhs, rhs));
+			append_line(ts, ternary_line(op, tmp, lhs, rhs));
 			break;
 		case NEQL:
 		case NNEQ:
@@ -361,7 +381,7 @@ Adr tac_resolve_boolean(T_S *ts, ASTNode *node) {
 			lhs = tac_resolve_numeric(ts, node->left_child);
 			rhs = tac_resolve_numeric(ts, node->right_child);
 			op = relop_at(node);
-			linkedlist_push_tail(ts->tac->lines, ternary_line(op, tmp, lhs, rhs));
+			append_line(ts, ternary_line(op, tmp, lhs, rhs));
 			break;
 		/* case NFCALL: TODO*/
 		/* 	tac_gen_fncall(ts, node); */
@@ -444,7 +464,7 @@ void tac_gen_func_locals(T_S *ts, ASTNode *node) {
 	// somehow cursor->symbol_vaue is null???
 	astree_set_offset(ts->ast, cursor->symbol_value, num_vars++);
 	Adr vars_num_adr = adr_of_int(ts, num_vars);
-	linkedlist_push_tail(ts->tac->lines, unary_line(O_ALLOC, vars_num_adr));
+	append_line(ts, unary_line(O_ALLOC, vars_num_adr));
 	cursor = node;
 	while (cursor->type == NDLIST) {
 		tac_gen_sdecl(ts, cursor->left_child); // technically this is _decl, but identical code
@@ -455,7 +475,7 @@ void tac_gen_func_locals(T_S *ts, ASTNode *node) {
 
 void tac_gen_func(T_S *ts, ASTNode* nfuncs) {
 	Adr fname = adr_of_sds(ts, sds_from_symbol(ts->ast, nfuncs->symbol_value));
-	linkedlist_push_tail(ts->tac->lines, unary_line(O_FUNC, fname));
+	append_line(ts, unary_line(O_FUNC, fname));
 	tac_gen_plist(ts, nfuncs->left_child);
 	tac_gen_func_locals(ts, nfuncs->middle_child);
 	tac_gen_stats(ts, nfuncs->right_child);
@@ -482,11 +502,11 @@ void tac_gen_nasgn(T_S *ts, ASTNode *node) {
 		case SINT:
 		case SREAL:
 			rhs = tac_resolve_numeric(ts, node->right_child);
-			linkedlist_push_tail(ts->tac->lines, binary_line(O_ASIGN, lhs, rhs));
+			append_line(ts, binary_line(O_ASIGN, lhs, rhs));
 			break;
 		case SBOOL:
 			rhs = tac_resolve_boolean(ts, node->right_child);
-			linkedlist_push_tail(ts->tac->lines, binary_line(O_ASIGN, lhs, rhs));
+			append_line(ts, binary_line(O_ASIGN, lhs, rhs));
 			break;
 			/* TODO arrays
 		case SARRAY:
@@ -571,7 +591,7 @@ void tac_gen_nasgnop(T_S *ts, ASTNode *node) {
 			break;
 		default: abort();
 	}
-	linkedlist_push_tail(ts->tac->lines, ternary_line(op, lhs, lhs, rhs));
+	append_line(ts, ternary_line(op, lhs, lhs, rhs));
 }
 
 void tac_gen_asgnlist(T_S *ts, ASTNode *node) {
@@ -587,50 +607,50 @@ void tac_gen_asgnlist(T_S *ts, ASTNode *node) {
 void tac_gen_if(T_S *ts, ASTNode *node) {
 	Adr label = mklabel(ts);
 	Adr cond = tac_resolve_boolean(ts, node->left_child);
-	linkedlist_push_tail(ts->tac->lines, binary_line(O_GOTOF, label, cond));
+	append_line(ts, binary_line(O_GOTOF, label, cond));
 	tac_gen_stats(ts, node->right_child);
-	linkedlist_push_tail(ts->tac->lines, unary_line(O_LABEL, label));
+	append_line(ts, unary_line(O_LABEL, label));
 }
 
 void tac_gen_ifelse(T_S *ts, ASTNode *node) {
 	Adr truelabel = mklabel(ts);
 	Adr falselabel = mklabel(ts);
 	Adr cond = tac_resolve_boolean(ts, node->left_child);
-	linkedlist_push_tail(ts->tac->lines, binary_line(O_GOTOF, falselabel, cond));
+	append_line(ts, binary_line(O_GOTOF, falselabel, cond));
 	tac_gen_stats(ts, node->middle_child);
-	linkedlist_push_tail(ts->tac->lines, unary_line(O_GOTO, truelabel));
-	linkedlist_push_tail(ts->tac->lines, unary_line(O_LABEL, falselabel));
+	append_line(ts, unary_line(O_GOTO, truelabel));
+	append_line(ts, unary_line(O_LABEL, falselabel));
 	tac_gen_stats(ts, node->right_child);
-	linkedlist_push_tail(ts->tac->lines, unary_line(O_LABEL, truelabel));
+	append_line(ts, unary_line(O_LABEL, truelabel));
 }
 
 void tac_gen_for(T_S *ts, ASTNode *node) {
 	tac_gen_asgnlist(ts, node->left_child);
 	Adr start = mklabel(ts);
 	Adr end = mklabel(ts);
-	linkedlist_push_tail(ts->tac->lines, unary_line(O_LABEL, start));
+	append_line(ts, unary_line(O_LABEL, start));
 	Adr cond = tac_resolve_boolean(ts, node->middle_child);
-	linkedlist_push_tail(ts->tac->lines, binary_line(O_GOTOF, end, cond));
+	append_line(ts, binary_line(O_GOTOF, end, cond));
 	tac_gen_stats(ts, node->right_child);
-	linkedlist_push_tail(ts->tac->lines, unary_line(O_GOTO, start));
-	linkedlist_push_tail(ts->tac->lines, unary_line(O_LABEL, end));
+	append_line(ts, unary_line(O_GOTO, start));
+	append_line(ts, unary_line(O_LABEL, end));
 }
 
 void tac_gen_repeat(T_S *ts, ASTNode *node) {
 	tac_gen_asgnlist(ts, node->left_child);
 	Adr start = mklabel(ts);
-	linkedlist_push_tail(ts->tac->lines, unary_line(O_LABEL, start));
+	append_line(ts, unary_line(O_LABEL, start));
 	tac_gen_stats(ts, node->middle_child);
 	Adr cond = tac_resolve_boolean(ts, node->right_child);
-	linkedlist_push_tail(ts->tac->lines, binary_line(O_GOTOF, start, cond));
+	append_line(ts, binary_line(O_GOTOF, start, cond));
 }
 
 void tac_gen_printitem(T_S*ts, ASTNode *node) {
 	if (node->type == NSTRG) {
 		Adr str_adr = adr_of_sds(ts, sds_from_symbol(ts->ast, node->symbol_value));
-		linkedlist_push_tail(ts->tac->lines, unary_line(O_PRINTSTR, str_adr));
+		append_line(ts, unary_line(O_PRINTSTR, str_adr));
 	} else {
-		linkedlist_push_tail(ts->tac->lines, nonary_line(O_PRINTSPC));
+		append_line(ts, nonary_line(O_PRINTSPC));
 		Adr outp = tac_get_adr(ts, node);
 		enum operation op;
 		if (node->symbol_type == SINT) {
@@ -638,7 +658,7 @@ void tac_gen_printitem(T_S*ts, ASTNode *node) {
 		} else {
 			op = O_PRINTF;
 		}
-		linkedlist_push_tail(ts->tac->lines, unary_line(op, outp));
+		append_line(ts, unary_line(op, outp));
 	}
 }
 
@@ -657,19 +677,19 @@ void tac_gen_noutp(T_S *ts, ASTNode *node) {
 
 void tac_gen_noutl(T_S *ts, ASTNode *node) {
 	if (!node->left_child) {
-		linkedlist_push_tail(ts->tac->lines, nonary_line(O_PRINTLN));
+		append_line(ts, nonary_line(O_PRINTLN));
 		return;
 	}
 	tac_gen_prlist(ts, node->left_child);
-	linkedlist_push_tail(ts->tac->lines, nonary_line(O_PRINTLN));
+	append_line(ts, nonary_line(O_PRINTLN));
 }
 
 void tac_gen_input_var(T_S *ts, ASTNode *node) {
 	Adr left = tac_get_adr(ts, node);
 	if (node->symbol_type == SREAL) {
-		linkedlist_push_tail(ts->tac->lines, unary_line(O_READF, left));
+		append_line(ts, unary_line(O_READF, left));
 	} else {
-		linkedlist_push_tail(ts->tac->lines, unary_line(O_READI, left));
+		append_line(ts, unary_line(O_READI, left));
 	}
 }
 
@@ -690,12 +710,12 @@ void tac_gen_parameters(T_S *ts, ASTNode *node, u16 *paramcount) {
 	if (!node) return;
 	if (node->type == NEXPL) {
 		Adr par = tac_resolve_expr(ts, node->left_child);
-		linkedlist_push_tail(ts->tac->lines, unary_line(O_PARAM, par));
+		append_line(ts, unary_line(O_PARAM, par));
 		(*paramcount)++;
 		tac_gen_parameters(ts, node->right_child, paramcount);
 	} else {
 		Adr par = tac_resolve_expr(ts, node);
-		linkedlist_push_tail(ts->tac->lines, unary_line(O_PARAM, par));
+		append_line(ts, unary_line(O_PARAM, par));
 		(*paramcount)++;
 	}
 }
@@ -705,7 +725,7 @@ void tac_gen_callstat(T_S *ts, ASTNode *node) {
 	tac_gen_parameters(ts, node->left_child, &paramcount);
 	Adr pcount = adr_of_int(ts, paramcount);
 	Adr fname = adr_of_sds(ts, sds_from_symbol(ts->ast, node->symbol_value));
-	linkedlist_push_tail(ts->tac->lines, binary_line(O_CALL, fname, pcount));
+	append_line(ts, binary_line(O_CALL, fname, pcount));
 }
 
 Adr tac_gen_fncall(T_S *ts, ASTNode *node) {
@@ -714,16 +734,16 @@ Adr tac_gen_fncall(T_S *ts, ASTNode *node) {
 	tac_gen_parameters(ts, node->left_child, &paramcount);
 	Adr pcount = adr_of_int(ts, paramcount);
 	Adr fname = adr_of_sds(ts, sds_from_symbol(ts->ast, node->symbol_value));
-	linkedlist_push_tail(ts->tac->lines, ternary_line(O_CALLVAL, tmp, fname, pcount));
+	append_line(ts, ternary_line(O_CALLVAL, tmp, fname, pcount));
 	return tmp;
 }
 
 void tac_gen_returnstat(T_S *ts, ASTNode *node) {
 	if (node->left_child) {
 		Adr radr = tac_resolve_expr(ts, node->left_child);
-		linkedlist_push_tail(ts->tac->lines, unary_line(O_RVAL, radr));
+		append_line(ts, unary_line(O_RVAL, radr));
 	} else {
-		linkedlist_push_tail(ts->tac->lines, nonary_line(O_RETN));
+		append_line(ts, nonary_line(O_RETN));
 	}
 }
 
@@ -786,15 +806,15 @@ void tac_gen_sdecl(T_S *ts, ASTNode *node) {
 	switch (node->symbol_type) {
 		case SREAL:
 			offset = astree_get_offset(ts->ast, node->symbol_value);
-			linkedlist_push_tail(ts->tac->lines, binary_line(O_ASIGN, mkadr(A_VAR, offset), adr_of_double(ts, 0.0)));
+			append_line(ts, binary_line(O_ASIGN, mkadr(A_VAR, offset), adr_of_double(ts, 0.0)));
 			break;
 		case SINT:
 			offset = astree_get_offset(ts->ast, node->symbol_value);
-			linkedlist_push_tail(ts->tac->lines, binary_line(O_ASIGN, mkadr(A_VAR, offset), adr_of_int(ts, 0)));
+			append_line(ts, binary_line(O_ASIGN, mkadr(A_VAR, offset), adr_of_int(ts, 0)));
 			break;
 		case SBOOL: // assumption: uninitialised booleans are false
 			offset = astree_get_offset(ts->ast, node->symbol_value);
-			linkedlist_push_tail(ts->tac->lines, unary_line(O_FALSE, mkadr(A_VAR, offset)));
+			append_line(ts, unary_line(O_FALSE, mkadr(A_VAR, offset)));
 			break;
 		default: abort();
 	}
@@ -809,7 +829,7 @@ void tac_gen_slist(T_S *ts, ASTNode *node) {
 	}
 	astree_set_offset(ts->ast, cursor->symbol_value, num_vars++);
 	Adr vars_num_adr = adr_of_int(ts, num_vars);
-	linkedlist_push_tail(ts->tac->lines, unary_line(O_ALLOC, vars_num_adr));
+	append_line(ts, unary_line(O_ALLOC, vars_num_adr));
 	cursor = node;
 	while (cursor->type == NSDLST) {
 		tac_gen_sdecl(ts, cursor->left_child);

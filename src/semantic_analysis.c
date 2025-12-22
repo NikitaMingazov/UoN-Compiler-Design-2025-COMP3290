@@ -361,7 +361,7 @@ void analyse_function(ASTree *ast, ASTNode *node, Lister *lst) {
 void analyse_nprog(ASTree *ast, ASTNode *node, Lister *lst) {
 	if (!unscoped_symbol_equals(node->symbol_value, node->right_child->symbol_value)) {
 		ast->is_valid = 0;
-		lister_sem_error(lst, 0, 0, "program name mismatch"); // todo: figure out how to get this line number
+		lister_sem_error(lst, node->row, 6, "program name mismatch"); // todo: figure out how to get this line number
 	}
 }
 
