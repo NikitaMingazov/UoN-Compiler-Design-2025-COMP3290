@@ -20,12 +20,17 @@ void lister_print_to_terminal(Lister *lister) {
 
 Lister *lister_create(const char *filename) {
 	Lister *temp = malloc(sizeof(Lister));
-	temp->out_file = fopen(filename, "w");
-	if (!temp->out_file) {
-		fprintf(stderr, "could not create listing file\n");
-		abort();
+	if (filename) {
+		temp->out_file = fopen(filename, "w");
+		if (!temp->out_file) {
+			fprintf(stderr, "could not create listing file\n");
+			abort();
+		}
+		fprintf(temp->out_file, "1 "); // line number
+		// fprintf(temp->out_file, "\n");
+	} else {
+		temp->out_file = NULL;
 	}
-	fprintf(temp->out_file, "1 "); // line number
 	temp->line_num = 1;
 	temp->warning_queue = linkedlist_create();
 	temp->error_queue = linkedlist_create();
@@ -33,27 +38,34 @@ Lister *lister_create(const char *filename) {
 }
 
 void lister_close(Lister *lstr) {
-	fprintf(lstr->out_file, "\n");
 	char *msg;
+	// todo: memory leak on the error messages when there are errors
 	while ((msg = (char *)linkedlist_pop_head(lstr->warning_queue)) != NULL) {
-		fprintf(lstr->out_file, msg);
+		if (lstr->out_file) {
+			fprintf(lstr->out_file, msg);
+		}
 		free(msg);
 	}
 	while ((msg = (char *)linkedlist_pop_head(lstr->error_queue)) != NULL) {
-		fprintf(lstr->out_file, msg);
+		if (lstr->out_file) {
+			fprintf(lstr->out_file, msg);
+		}
 		free(msg);
 	}
-	// todo: memory leak on the error messages when there are errors
-	fclose(lstr->out_file);
+	if (lstr->out_file) {
+		fclose(lstr->out_file);
+	}
 	linkedlist_free(lstr->warning_queue);
 	linkedlist_free(lstr->error_queue);
 	free(lstr);
 }
 
 void lister_write(Lister *lstr, char ch) {
-	fputc((unsigned char) ch, (*lstr).out_file);
-	if (ch == '\n') {
-		fprintf(lstr->out_file, "%d ", ++(lstr->line_num));
+	if (lstr->out_file) {
+		fputc((unsigned char) ch, (*lstr).out_file);
+		if (ch == '\n') {
+			fprintf(lstr->out_file, "%d ", ++(lstr->line_num));
+		}
 	}
 	// if you wanted listing file to have inline errors, here is where they would be printed
 }

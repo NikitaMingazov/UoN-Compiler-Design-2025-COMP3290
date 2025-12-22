@@ -6,7 +6,6 @@
 #include "sm25_codegen/sm25_code_generation.h"
 #include "x86_codegen/x86_code_generation.h"
 #include "threeaddresscode.h"
-#include "node.h"
 #include "lister.h"
 #include <stdlib.h>
 #include <libgen.h>
@@ -68,49 +67,73 @@ enum arch {
 	X86_LINUX,
 };
 
+#define REQUIRED_ARGS \
+	REQUIRED_STRING_ARG(in_file, "i", "Input file path") \
+
+#define OPTIONAL_ARGS \
+	OPTIONAL_STRING_ARG(out_path, "", "-o", "out_file", "Output filename (TODO)") \
+	OPTIONAL_STRING_ARG(arch, "x86", "-a", "arch", "Architecture [x86|sm25]")
+
+#define BOOLEAN_ARGS \
+	BOOLEAN_ARG(print_tac, "-t", "Print TAC to terminal") \
+	BOOLEAN_ARG(make_listing, "-l", "Produce listing file at output path") \
+	BOOLEAN_ARG(help, "-h", "Show help")
+
+#include "lib/easyargs.h"
+
+
 int main(int argc, char **argv) {
-	if (argc == 1) {
-		printf("missing source file argument\n");
+	args_t args = make_default_args();
+	if (parse_args(argc, argv, &args) || args.help) {
+		print_help(argv[0]);
 		return 1;
 	}
-	// TODO: proper arg parsing / split binary releases
-	enum arch architecture;
-	if (argc == 2) {
-		printf("x86_64_linux is WIP\n"); // remove this line later
-		architecture = X86_LINUX;
-	} else {
-		printf("building for SM25\n");
-		architecture = SM25;
-	}
-	char *full_ls_path = path_of_listing(argv[0], argv[1]);
 
+	enum arch architecture;
+	if (strcmp(args.arch, "x86") == 0) {
+		architecture = X86_LINUX;
+	} else if (strcmp(args.arch, "sm25") == 0) {
+		architecture = SM25;
+	} else {
+		printf("unknown architecture, options are x86 and sm25"); // TODO move this to easy-args
+		return 1;
+	}
+
+	char *full_ls_path = NULL;
+	if (args.make_listing) {
+		full_ls_path = path_of_listing(argv[0], args.in_file);
+	}
 	Lister *lister = lister_create(full_ls_path);
 	free(full_ls_path);
 
-	ASTree *ast = get_AST(argv[1], lister);
+	ASTree *ast = get_AST(args.in_file, lister);
 	analyse_program(ast, lister);
 
 	lister_print_to_terminal(lister);
 	lister_close(lister);
+
+	char *filepath;
 	if (ast->is_valid) {
 		TAC *tac = tac_from_ast(ast);
+		if (args.print_tac) {
+			tac_printf(tac);
+		}
 		// the backend
 		switch (architecture) {
 			case X86_LINUX:
-				char *bin_filepath = binary_filename(argv[0], argv[1]);
-				x86_code_gen(bin_filepath, tac);
-				free(bin_filepath);
+				filepath = binary_filename(argv[0], args.in_file);
+				x86_code_gen(filepath, tac);
+				free(filepath);
 				break;
 			// this was my uni project, hence commented out output
 			// also why no TAC, the project didn't use one
 			case SM25:
 				// printf("No errors found\n");
-				char *mod_file = module_filename(argv[0], argv[1]);
-				sm25_code_gen(mod_file, ast);
+				filepath = module_filename(argv[0], args.in_file);
+				sm25_code_gen(filepath, ast);
 				// print module file to terminal
 				// FILE *f = fopen(mod_file, "r"); int c; while ((c = fgetc(f)) != EOF) putchar(c); putchar('n'); fclose(f);
-				free(mod_file);
-				break;
+				free(filepath);
 		}
 		tac_free(tac);
 	}
