@@ -1,6 +1,3 @@
-// vimargs ../cd25_programs/valid0_helloworld.cd
-
-#include "lib/sds.h"
 #include "parser.h"
 #include "semantic_analysis.h"
 #include "sm25_codegen/sm25_code_generation.h"
@@ -10,6 +7,7 @@
 #include <stdlib.h>
 #include <libgen.h>
 #include <string.h>
+#include <unistd.h> // getcwd()
 
 static char* strdup(const char* s) {
 	size_t len = strlen(s) + 1;
@@ -24,40 +22,37 @@ static char* strdup(const char* s) {
    destructor for attribute
 */
 
-char *path_of_listing(char *exec_path, char *source_path) {
-	char *exec_dir = dirname(exec_path);
+char *path_of_listing(char *out_path, char *source_path) {
 	char *source_base = basename(strdup(source_path));
 	char *dot = strrchr(source_base, '.');
 	if (dot) *dot = '\0'; // Remove extension
 	char *ls_filename = malloc(strlen(source_base) + 5); // .lst + null
 	snprintf(ls_filename, strlen(source_base) + 5, "%s.lst", source_base);
-	char *full_ls_path = malloc(strlen(exec_dir) + strlen(ls_filename) + 2); // / + null
-	snprintf(full_ls_path, strlen(exec_dir) + strlen(ls_filename) + 2, "%s/%s", exec_dir, ls_filename);
+	char *full_ls_path = malloc(strlen(out_path) + strlen(ls_filename) + 2); // / + null
+	snprintf(full_ls_path, strlen(out_path) + strlen(ls_filename) + 2, "%s/%s", out_path, ls_filename);
 	free(ls_filename);
 	return full_ls_path;
 }
 
-char *module_filename(char *exec_path, char *source_path) {
-	char *exec_dir = dirname(exec_path);
+char *module_filename(char *out_path, char *source_path) {
 	char *source_base = basename(strdup(source_path));
 	char *dot = strrchr(source_base, '.');
 	if (dot) *dot = '\0'; // Remove extension
 	char *mod_filename = malloc(strlen(source_base) + 5); // .lst + null
 	snprintf(mod_filename, strlen(source_base) + 5, "%s.mod", source_base);
-	char *full_mod_path = malloc(strlen(exec_dir) + strlen(mod_filename) + 2); // / + null
-	snprintf(full_mod_path, strlen(exec_dir) + strlen(mod_filename) + 2, "%s/%s", exec_dir, mod_filename);
+	char *full_mod_path = malloc(strlen(out_path) + strlen(mod_filename) + 2); // / + null
+	snprintf(full_mod_path, strlen(out_path) + strlen(mod_filename) + 2, "%s/%s", out_path, mod_filename);
 	free(mod_filename);
 	return full_mod_path;
 }
 
-char *binary_filename(char *exec_path, char *source_path) {
-	char *exec_dir = dirname(exec_path);
+char *binary_filename(char *out_path, char *source_path) {
 	char *dup_path = strdup(source_path);
 	char *bin_filename = basename(dup_path); // no extension
 	char *dot = strrchr(bin_filename, '.');
 	if (dot) *dot = '\0'; // Remove extension
-	char *full_bin_path = malloc(strlen(exec_dir) + strlen(bin_filename) + 2); // / + null
-	snprintf(full_bin_path, strlen(exec_dir) + strlen(bin_filename) + 2, "%s/%s", exec_dir, bin_filename);
+	char *full_bin_path = malloc(strlen(out_path) + strlen(bin_filename) + 2); // / + null
+	snprintf(full_bin_path, strlen(out_path) + strlen(bin_filename) + 2, "%s/%s", out_path, bin_filename);
 	free(dup_path);
 	return full_bin_path;
 }
@@ -68,19 +63,18 @@ enum arch {
 };
 
 #define REQUIRED_ARGS \
-	REQUIRED_STRING_ARG(in_file, "i", "Input file path") \
+	REQUIRED_STRING_ARG(in_file, "in_file", "Input filepath") \
 
 #define OPTIONAL_ARGS \
-	OPTIONAL_STRING_ARG(out_path, "", "-o", "out_file", "Output filename (TODO)") \
+	OPTIONAL_STRING_ARG(out_path, "", "-o", "out_file", "Output filepath") \
 	OPTIONAL_STRING_ARG(arch, "x86", "-a", "arch", "Architecture [x86|sm25]")
 
 #define BOOLEAN_ARGS \
 	BOOLEAN_ARG(print_tac, "-t", "Print TAC to terminal") \
-	BOOLEAN_ARG(make_listing, "-l", "Produce listing file at output path") \
+	BOOLEAN_ARG(make_listing, "-l", "Produce listing file next to output path") \
 	BOOLEAN_ARG(help, "-h", "Show help")
 
 #include "lib/easyargs.h"
-
 
 int main(int argc, char **argv) {
 	args_t args = make_default_args();
@@ -99,9 +93,16 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 
+	char *out_path;
+	if (*args.out_path) {
+		out_path = args.out_path;
+	} else {
+		out_path = getcwd(NULL, 0);
+	}
+
 	char *full_ls_path = NULL;
 	if (args.make_listing) {
-		full_ls_path = path_of_listing(argv[0], args.in_file);
+		full_ls_path = path_of_listing(out_path, args.in_file);
 	}
 	Lister *lister = lister_create(full_ls_path);
 	free(full_ls_path);
@@ -112,32 +113,40 @@ int main(int argc, char **argv) {
 	lister_print_to_terminal(lister);
 	lister_close(lister);
 
-	char *filepath;
+	char *filepath = NULL;
 	if (ast->is_valid) {
 		TAC *tac = tac_from_ast(ast);
 		if (args.print_tac) {
 			tac_printf(tac);
 		}
+		// if an out filename was given, use it. if not, a per-arch default is used
+		if (*args.out_path) {
+			filepath = args.out_path;
+		}
 		// the backend
 		switch (architecture) {
 			case X86_LINUX:
-				filepath = binary_filename(argv[0], args.in_file);
+				if (!filepath) {
+					filepath = binary_filename(out_path, args.in_file);
+				}
 				x86_code_gen(filepath, tac);
-				free(filepath);
 				break;
 			// this was my uni project, hence commented out output
 			// also why no TAC, the project didn't use one
 			case SM25:
 				// printf("No errors found\n");
-				filepath = module_filename(argv[0], args.in_file);
+				if (!filepath) {
+					filepath = module_filename(out_path, args.in_file);
+				}
 				sm25_code_gen(filepath, ast);
 				// print module file to terminal
-				// FILE *f = fopen(mod_file, "r"); int c; while ((c = fgetc(f)) != EOF) putchar(c); putchar('n'); fclose(f);
-				free(filepath);
+				// FILE *f = fopen(filepath, "r"); int c; while ((c = fgetc(f)) != EOF) putchar(c); putchar('n'); fclose(f);
 		}
 		tac_free(tac);
+		if (!args.out_path) {
+			free(filepath);
+		}
 	}
 	astree_free(ast);
 	return 0;
 }
-

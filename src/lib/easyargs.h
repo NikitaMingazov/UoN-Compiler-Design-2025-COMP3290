@@ -4,6 +4,7 @@
  * TODO:
  * enum type
  * bools should be single letter and can be parsed as a block
+ * variadic args
 */
 
 /*

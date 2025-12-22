@@ -12,6 +12,6 @@ The target code is SM25 (Stack Machine 25), which is interpreted by the simulato
 
 Run the makefile in /src with "make" in a terminal to build the compiler executable.
 
-The compiler takes a source file as argument, prints any errors or warnings for the compilation and creates in the directory of the compiler executable a .mod SM25 bytecode module and a .lst listing file for the source code and any warnings/errors.
+The compiler takes a source file as argument, prints any errors or warnings for the compilation and creates in the working directory a .mod SM25 bytecode module and optionally a .lst listing file for the source code and any warnings/errors.
 
 A few precompiled modules that can be run by the interpreter are provided, as is their source code in /cd25_programs. The simulator is started using "java -jar SM25.jar", putting the filename for the .mod, clicking load and then running either until halt or per instruction. Input and output text file can also be customised, but the files have to exist, so I just used the defaults.
