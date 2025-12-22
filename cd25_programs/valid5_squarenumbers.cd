@@ -10,7 +10,7 @@ begin
 	until ( i < 10 );
 	for (i = 10; i < 20)
 		if (1 == 0)
-			Out << "" ;
+			Out << "this is unreachable" ;
 		else
 			Out << i^2 << Line;
 			i += 1;

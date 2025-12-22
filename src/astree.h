@@ -45,6 +45,7 @@ typedef struct attribute {
 	enum symbol_type type;
 	void *data; // Symbol*, LinkedList*<attribute>, LinkedList*<element>
 	int offset;
+	int is_param;
 	// union symbol_data data;
 	// u16 row;
 	// u16 col;
@@ -57,6 +58,12 @@ Symbol *astree_get_symbol(ASTree *ast, sds iden, u16 scope);
 
 int astree_add_attribute(ASTree *ast, Symbol *key, Attribute *atr);
 Attribute *astree_get_attribute(ASTree *ast, Symbol *key);
+
+void astree_set_offset(ASTree *ast, Symbol *key, u16 val);
+u16 astree_get_offset(ASTree *ast, Symbol *key);
+
+void astree_mark_param(ASTree *ast, Symbol *key);
+int astree_is_param(ASTree *ast, Symbol *key);
 
 #endif
 

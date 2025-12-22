@@ -142,11 +142,12 @@ Attribute *astree_attribute_create(ASTree *ast, enum symbol_type type, void *dat
 	} else {
 		atr->data = NULL;
 	}
+	atr->offset = -1;
+	atr->is_param = 0;
 	return atr;
 }
 
 static void sdsfree_wrapper(void *ptr) {
-	int *a, b;
 	sdsfree((sds)ptr);
 }
 
@@ -207,3 +208,22 @@ void astree_free(ASTree *tree) {
 	free(tree);
 }
 
+void astree_set_offset(ASTree *ast, Symbol *key, u16 val) {
+	Attribute *atr = astree_get_attribute(ast, key);
+	atr->offset = val;
+}
+
+u16 astree_get_offset(ASTree *ast, Symbol *key) {
+	Attribute *atr = astree_get_attribute(ast, key);
+	return atr->offset;
+}
+
+void astree_mark_param(ASTree *ast, Symbol *key) {
+	Attribute *atr = astree_get_attribute(ast, key);
+	atr->is_param = 1;
+}
+
+int astree_is_param(ASTree *ast, Symbol *key) {
+	Attribute *atr = astree_get_attribute(ast, key);
+	return atr->is_param;
+}

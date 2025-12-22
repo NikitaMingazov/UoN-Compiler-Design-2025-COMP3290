@@ -1,5 +1,7 @@
 # the target binary
 cd25c
 *.o
+# dir for stuff not meant for git
+ignore
 # listing files
 *.lst

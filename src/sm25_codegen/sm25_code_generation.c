@@ -444,6 +444,7 @@ void codegen_input_var(Codegen *cdg, ASTNode *node) {
 		}
 		push_instruction(cdg, ST, 0);
 	} else if (node->type == NARRV) {
+		// TODO: I think this is code duplication, clean up getting the address
 		Attribute *array_atr = astree_get_attribute(cdg->ast, node->left_child->symbol_value);
 		codegen_array_push(cdg, node->left_child);
 		codegen_numeric_push(cdg, node->right_child);

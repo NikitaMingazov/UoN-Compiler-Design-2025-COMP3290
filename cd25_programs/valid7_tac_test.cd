@@ -1,0 +1,37 @@
+CD25 TACtest
+
+func printintpair(k : integer, j : integer) : void
+begin
+	Out << "First", k, " Second:", j << Line;
+	return void;
+end
+
+func fibonacci(n : integer) : integer
+	a : integer,
+	b : integer,
+	temp : integer,
+	i : integer
+begin
+	a = 0;
+	b = 1;
+	for (i = 0; i < n)
+		temp = b;
+		b += a;
+		a = temp;
+	end
+	return a;
+end
+
+main
+	w : real,
+	x : integer,
+	y : integer,
+	z : integer
+begin
+	/-- float promotion and AST unfolding
+	w = 1.5;
+	y = 5;
+	w = 0.0 + x + y + z;
+	Out << w << Line;
+	printintpair(fibonacci(10), 1 + 2 * 3);
+end CD25 TACtest
