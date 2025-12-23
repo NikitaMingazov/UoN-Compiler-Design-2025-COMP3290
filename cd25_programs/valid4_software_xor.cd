@@ -16,13 +16,13 @@ main
 	notb : boolean
 begin
 	In >> x; /-- "true" can't be used as an input so 1|0 is passed in instead.
-	if (x == 1)
+	if (x != 0)
 		a = true;
 	else
 		a = false;
 	end
 	In >> y;
-	if (y == 1)
+	if (y != 0)
 		b = true;
 	else
 		b = false;

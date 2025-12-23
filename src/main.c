@@ -20,6 +20,7 @@ static char* strdup(const char* s) {
 
 /* todos:
    destructor for attribute
+   correct error on passing in a directory as source file (syntax error currently)
 */
 
 char *path_of_listing(char *out_path, char *source_path) {
@@ -58,8 +59,8 @@ char *binary_filename(char *out_path, char *source_path) {
 }
 
 enum arch {
-	SM25,
 	X86_LINUX,
+	SM25,
 };
 
 #define REQUIRED_ARGS \
@@ -70,7 +71,8 @@ enum arch {
 	OPTIONAL_STRING_ARG(arch, "x86", "-a", "arch", "Architecture [x86|sm25]")
 
 #define BOOLEAN_ARGS \
-	BOOLEAN_ARG(print_tac, "-t", "Print TAC to terminal") \
+	BOOLEAN_ARG(print_tac, "-T", "Print TAC to terminal and stop compilation") \
+	BOOLEAN_ARG(print_ast, "-A", "Print AST to terminal and stop compilation") \
 	BOOLEAN_ARG(make_listing, "-l", "Produce listing file next to output path") \
 	BOOLEAN_ARG(help, "-h", "Show help")
 
@@ -80,6 +82,15 @@ int main(int argc, char **argv) {
 	args_t args = make_default_args();
 	if (parse_args(argc, argv, &args) || args.help) {
 		print_help(argv[0]);
+		if (args.help) {
+			return 0;
+		} else {
+			return 1;
+		}
+	}
+
+	if (args.print_ast && args.print_tac) {
+		printf("AST and TAC flags are incompatible, only use one\n");
 		return 1;
 	}
 
@@ -89,7 +100,7 @@ int main(int argc, char **argv) {
 	} else if (strcmp(args.arch, "sm25") == 0) {
 		architecture = SM25;
 	} else {
-		printf("unknown architecture, options are x86 and sm25"); // TODO move this to easy-args
+		printf("unknown architecture, options are x86 and sm25\n"); // TODO move this to easy-args
 		return 1;
 	}
 
@@ -109,6 +120,10 @@ int main(int argc, char **argv) {
 
 	ASTree *ast = get_AST(args.in_file, lister);
 	analyse_program(ast, lister);
+	if (args.print_ast && ast->is_valid) {
+		astree_printf(ast);
+		return 0;
+	}
 
 	lister_print_to_terminal(lister);
 	lister_close(lister);
@@ -118,6 +133,7 @@ int main(int argc, char **argv) {
 		TAC *tac = tac_from_ast(ast);
 		if (args.print_tac) {
 			tac_printf(tac);
+			return 0;
 		}
 		// if an out filename was given, use it. if not, a per-arch default is used
 		if (*args.out_path) {
@@ -150,3 +166,4 @@ int main(int argc, char **argv) {
 	astree_free(ast);
 	return 0;
 }
+

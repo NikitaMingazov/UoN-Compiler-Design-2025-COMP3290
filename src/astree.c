@@ -1,4 +1,3 @@
-
 #include <string.h>
 #include "astree.h"
 #include "node.h"
@@ -6,6 +5,16 @@
 #include "lib/hashmap.h"
 #include "lib/linkedlist.h" // linkedlist_free
 #include "lib/sds.h"
+// astree_printf
+#include <stdio.h>
+#include "lib/sds.h"
+
+static sds sds_substr(const sds src, size_t start, size_t len) {
+	size_t src_len = sdslen(src);
+	if (start >= src_len) return sdsnew("");  // empty string if start past end
+	if (start + len > src_len) len = src_len - start;
+	return sdsnewlen(src + start, len);
+}
 
 static unsigned hash_str(const void *ptr) {
 	char *s = (char *) ptr;
@@ -226,4 +235,45 @@ void astree_mark_param(ASTree *ast, Symbol *key) {
 int astree_is_param(ASTree *ast, Symbol *key) {
 	Attribute *atr = astree_get_attribute(ast, key);
 	return atr->is_param;
+}
+
+void print_node(ASTree *ast, ASTNode *node, int *linelen) {
+	if (*linelen >= 70) {
+		printf("\n");
+		*linelen = 0;
+	}
+	printf("%s", NPRINT[node->type]);
+	*linelen += 7;
+	if (node->symbol_value) {
+		sds symbol_str = sds_substr(
+			ast->symboltable->stringspace,
+			node->symbol_value->index.start,
+			node->symbol_value->index.len
+		);
+		printf("%s", symbol_str);
+		*linelen += sdslen(symbol_str) - 1; // why is this -1 needed for alignment??
+		sdsfree(symbol_str);
+		printf(" "); // pad value with whitespace
+		(*linelen)++;
+		while (++(*linelen) % 7 != 0)
+			printf(" ");
+	}
+	if (*linelen >= 70) {
+		printf("\n");
+		*linelen = 0;
+	}
+}
+
+void print_traversal(ASTree *ast, ASTNode *node, int *linelen) {
+	if (!node) return;
+	print_node(ast, node, linelen);
+	print_traversal(ast, node->left_child, linelen);
+	print_traversal(ast, node->middle_child, linelen);
+	print_traversal(ast, node->right_child, linelen);
+}
+
+void astree_printf(ASTree *ast) {
+	int linelen = 0;
+	print_traversal(ast, ast->root, &linelen);
+	printf("\n");
 }

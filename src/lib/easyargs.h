@@ -5,6 +5,8 @@
  * enum type
  * bools should be single letter and can be parsed as a block
  * variadic args
+ * aliasing args
+ * have any -<> be regarded as an arg and an unknown one rejected in parsing
 */
 
 /*
@@ -213,7 +215,7 @@ static inline int parse_args(int argc, char* argv[], args_t* args) {
 		}
 
 		OPTIONAL_ARGS
-   
+
 		#undef OPTIONAL_ARG
 		#endif
 
@@ -369,3 +371,4 @@ static inline void print_help(char* exec_alias) {
 	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 	SOFTWARE.
 */
+

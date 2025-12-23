@@ -65,6 +65,8 @@ u16 astree_get_offset(ASTree *ast, Symbol *key);
 void astree_mark_param(ASTree *ast, Symbol *key);
 int astree_is_param(ASTree *ast, Symbol *key);
 
+void astree_printf(ASTree *ast);
+
 #endif
 
 // enum symbol_type {

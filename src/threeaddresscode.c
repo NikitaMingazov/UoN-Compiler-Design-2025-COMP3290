@@ -344,8 +344,7 @@ Adr tac_resolve_boolean(T_S *ts, ASTNode *node) {
 			break;
 		case NSIMV:
 		case NARRV:
-			tac_get_adr(ts, node);
-			break;
+			return tac_get_adr(ts, node);
 		case NNOT:
 			lhs = tac_resolve_numeric(ts, node->left_child);
 			rhs = tac_resolve_numeric(ts, node->right_child);
@@ -354,7 +353,6 @@ Adr tac_resolve_boolean(T_S *ts, ASTNode *node) {
 			not_tmp = mktmp(ts);
 			append_line(ts, binary_line(O_NOT, not_tmp, tmp));
 			return not_tmp;
-			break;
 		case NBOOL:
 			lhs = tac_resolve_boolean(ts, node->left_child);
 			rhs = tac_resolve_boolean(ts, node->right_child);
@@ -383,9 +381,8 @@ Adr tac_resolve_boolean(T_S *ts, ASTNode *node) {
 			op = relop_at(node);
 			append_line(ts, ternary_line(op, tmp, lhs, rhs));
 			break;
-		/* case NFCALL: TODO*/
-		/* 	tac_gen_fncall(ts, node); */
-		/* 	break; */
+		case NFCALL:
+			return tac_gen_fncall(ts, node);
 		default: abort();
 	}
 	return tmp;
@@ -415,6 +412,7 @@ Adr tac_get_adr(T_S *ts, ASTNode *node) {
 	double fval;
 	switch (node->type) {
 		case NSIMV:
+			// TODO consts
 			if (astree_is_param(ts->ast, node->symbol_value)) {
 				type = A_PARAM;
 			} else {
@@ -430,7 +428,7 @@ Adr tac_get_adr(T_S *ts, ASTNode *node) {
 			return adr_of_double(ts, fval);
 		case NADD: case NSUB: case NMUL: case NDIV: case NMOD: case NPOW:
 			return tac_resolve_numeric(ts, node);
-		case NFALS: case NTRUE: case NNOT: case NBOOL: case NEQL: case NNEQ: case NGRT: case NLSS: case NLEQ: case NGEQ:
+		case NFALS: case NTRUE: case NBOOL: case NNOT: case NEQL: case NNEQ: case NGRT: case NGEQ: case NLSS: case NLEQ:
 			return tac_resolve_boolean(ts, node);
 		/* case NARRV: */
 		/* 	break; */
@@ -650,6 +648,10 @@ void tac_gen_printitem(T_S*ts, ASTNode *node) {
 		Adr str_adr = adr_of_sds(ts, sds_from_symbol(ts->ast, node->symbol_value));
 		append_line(ts, unary_line(O_PRINTSTR, str_adr));
 	} else {
+		/* Adr space = adr_of_sds(ts, sdsnew(" ")); */
+		/* append_line(ts, unary_line(O_PARAM, space)); */
+		/* Adr printf_adr = adr_of_sds(ts, sdsnew("printf")); */
+		/* append_line(ts, binary_line(O_CALL, printf_adr, adr_of_int(ts, 1))); */
 		append_line(ts, nonary_line(O_PRINTSPC));
 		Adr outp = tac_get_adr(ts, node);
 		enum operation op;
@@ -942,7 +944,7 @@ void print_tac_line(Line *l) {
 		// unary asign
 		case O_READI: case O_READF: case O_TRUE: case O_FALSE:
 			print_adr(l->left);
-			printf("= %s", print_op[l->op]);
+			printf(" = %s", print_op[l->op]);
 			break;
 		// binary void
 		case O_GOTOF: case O_GOTOT:
