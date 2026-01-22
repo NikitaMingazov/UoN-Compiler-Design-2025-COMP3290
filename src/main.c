@@ -39,7 +39,7 @@ char *module_filename(char *out_path, char *source_path) {
 	char *source_base = basename(strdup(source_path));
 	char *dot = strrchr(source_base, '.');
 	if (dot) *dot = '\0'; // Remove extension
-	char *mod_filename = malloc(strlen(source_base) + 5); // .lst + null
+	char *mod_filename = malloc(strlen(source_base) + 5); // .mod + null
 	snprintf(mod_filename, strlen(source_base) + 5, "%s.mod", source_base);
 	char *full_mod_path = malloc(strlen(out_path) + strlen(mod_filename) + 2); // / + null
 	snprintf(full_mod_path, strlen(out_path) + strlen(mod_filename) + 2, "%s/%s", out_path, mod_filename);
@@ -47,15 +47,16 @@ char *module_filename(char *out_path, char *source_path) {
 	return full_mod_path;
 }
 
-char *binary_filename(char *out_path, char *source_path) {
-	char *dup_path = strdup(source_path);
-	char *bin_filename = basename(dup_path); // no extension
-	char *dot = strrchr(bin_filename, '.');
+char *asm_filename(char *out_path, char *source_path) {
+	char *source_base = basename(strdup(source_path));
+	char *dot = strrchr(source_base, '.');
 	if (dot) *dot = '\0'; // Remove extension
-	char *full_bin_path = malloc(strlen(out_path) + strlen(bin_filename) + 2); // / + null
-	snprintf(full_bin_path, strlen(out_path) + strlen(bin_filename) + 2, "%s/%s", out_path, bin_filename);
-	free(dup_path);
-	return full_bin_path;
+	char *mod_filename = malloc(strlen(source_base) + 5); // .asm + null
+	snprintf(mod_filename, strlen(source_base) + 5, "%s.asm", source_base);
+	char *full_mod_path = malloc(strlen(out_path) + strlen(mod_filename) + 2); // / + null
+	snprintf(full_mod_path, strlen(out_path) + strlen(mod_filename) + 2, "%s/%s", out_path, mod_filename);
+	free(mod_filename);
+	return full_mod_path;
 }
 
 enum arch {
@@ -71,8 +72,9 @@ enum arch {
 	OPTIONAL_STRING_ARG(arch, "x86", "-a", "arch", "Architecture [x86|sm25]")
 
 #define BOOLEAN_ARGS \
-	BOOLEAN_ARG(print_tac, "-T", "Print TAC to terminal and stop compilation") \
-	BOOLEAN_ARG(print_ast, "-A", "Print AST to terminal and stop compilation") \
+	BOOLEAN_ARG(debug, "-g", "Emit debugging symbols in asm (WIP)") \
+	BOOLEAN_ARG(print_tac, "-T", "Print TAC to stdout and stop compilation") \
+	BOOLEAN_ARG(print_ast, "-A", "Print AST to stdout and stop compilation") \
 	BOOLEAN_ARG(make_listing, "-l", "Produce listing file next to output path") \
 	BOOLEAN_ARG(help, "-h", "Show help")
 
@@ -89,9 +91,20 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	if (args.print_ast && args.print_tac) {
-		printf("AST and TAC flags are incompatible, only use one\n");
+	if (args.debug && strcmp(args.arch, "sm25") == 0) {
+		printf("Cannot emit debugging metadata for SM25\n");
 		return 1;
+	}
+
+	if (args.print_ast && args.print_tac && args.readable_sm25) {
+		printf("Can only stop compilation once\n");
+		return 1;
+	}
+	if (args.readable_sm25) {
+		args.arch = "sm25";
+	}
+	if (args.print_tac) {
+		args.arch = "x86";
 	}
 
 	enum arch architecture;
@@ -100,7 +113,7 @@ int main(int argc, char **argv) {
 	} else if (strcmp(args.arch, "sm25") == 0) {
 		architecture = SM25;
 	} else {
-		printf("unknown architecture, options are x86 and sm25\n"); // TODO move this to easy-args
+		printf("unknown architecture, options are x86 and sm25\n"); // TODO move this to easy-args (implement enum)
 		return 1;
 	}
 
@@ -130,7 +143,7 @@ int main(int argc, char **argv) {
 
 	char *filepath = NULL;
 	if (ast->is_valid) {
-		TAC *tac = tac_from_ast(ast);
+		tac = tac_from_ast(ast);
 		if (args.print_tac) {
 			tac_printf(tac);
 			return 0;
@@ -143,9 +156,13 @@ int main(int argc, char **argv) {
 		switch (architecture) {
 			case X86_LINUX:
 				if (!filepath) {
-					filepath = binary_filename(out_path, args.in_file);
+					filepath = asm_filename(out_path, args.in_file);
 				}
-				x86_code_gen(filepath, tac);
+				if (args.debug) {
+					x86_code_gen(filepath, tac, basename(args.in_file));
+				} else {
+					x86_code_gen(filepath, tac, NULL);
+				}
 				break;
 			// this was my uni project, hence commented out output
 			// also why no TAC, the project didn't use one
@@ -154,14 +171,17 @@ int main(int argc, char **argv) {
 				if (!filepath) {
 					filepath = module_filename(out_path, args.in_file);
 				}
-				sm25_code_gen(filepath, ast);
+				sm25_code_gen(filepath, ast, args.readable_sm25);
 				// print module file to terminal
 				// FILE *f = fopen(filepath, "r"); int c; while ((c = fgetc(f)) != EOF) putchar(c); putchar('n'); fclose(f);
+				break;
 		}
 		tac_free(tac);
 		if (!args.out_path) {
 			free(filepath);
 		}
+	} else {
+		return 1;
 	}
 	astree_free(ast);
 	return 0;

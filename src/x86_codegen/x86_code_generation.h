@@ -3,7 +3,7 @@
 
 #include "../threeaddresscode.h"
 
-void x86_code_gen(char *dest_path, TAC* tac);
+void x86_code_gen(char *dest_path, TAC* tac, char *source_name);
 
 #endif
 

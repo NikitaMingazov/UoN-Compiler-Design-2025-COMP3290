@@ -19,11 +19,15 @@ typedef struct tac_state {
 	HashMap *seen_floatvals; // <val: double, offset: int>
 	// function local
 	u16 temp_reg_counter;
-	u16 label_counter;
 	// global
+	u16 label_counter;
 	u16 string_counter;
 	u16 float_counter;
 	u16 int_counter;
+	u16 array_counter;
+	HashMap *array_len_map; // <symbol, int>
+	HashMap *array_structsize_map; // <symbol, int>
+	HashMap *const_map; // <symbol, int>
 } T_S;
 
 // predefinitions
@@ -32,6 +36,7 @@ void tac_gen_sdecl(T_S *ts, ASTNode *node);
 Adr tac_get_adr(T_S *ts, ASTNode *node);
 Adr tac_gen_fncall(T_S *ts, ASTNode *node);
 long *heap_long(long k);
+int *heap_int(int k);
 double *heap_double(double x);
 
 // abstracted away because I might want to use dynamic arrays later
@@ -81,6 +86,23 @@ static double sym_to_double(ASTree *ast, Symbol *s) {
 	return val;
 }
 
+static unsigned hash_symbol(const void *ptr) {
+	const Symbol *sym = (const Symbol *)ptr;
+	unsigned hash = 17;
+	hash = hash * 31 + (unsigned)(sym->index.start ^ (sym->index.start >> 32));
+	hash = hash * 31 + (unsigned)(sym->index.len ^ (sym->index.len >> 32));
+	hash = hash * 31 + sym->scope;
+	return hash;
+}
+
+static int equal_symbol(const void *a, const void *b) {
+	const Symbol *s1 = (const Symbol *)a;
+	const Symbol *s2 = (const Symbol *)b;
+	return s1->index.start == s2->index.start &&
+	       s1->index.len   == s2->index.len &&
+	       s1->scope       == s2->scope;
+}
+
 static unsigned hash_str(const void *ptr) {
 	char *s = (char *) ptr;
 	unsigned hashval;
@@ -102,8 +124,6 @@ static int equal_i64(const void *a, const void *b) {
 	return *i1 == *i2;
 }
 
-// hashes aren't colliding when they should
-// TODO: make this actually work
 static inline u64 quantise_double(double x) {
 	return (u64) floor(x / 0.0001);
 }
@@ -120,7 +140,7 @@ static int equal_double(const void *x, const void *y) {
 	return a == b;
 }
 
-Adr blank() {
+Adr blank(void) {
 	return (Adr) {A_EMPTY, 0};
 }
 
@@ -136,32 +156,38 @@ Adr mklabel(T_S *ts) {
 	return mkadr(A_LABEL, ts->label_counter++);
 }
 
-Line *ternary_line(enum operation op, Adr left, Adr middle, Adr right) {
+Line *ternary_line(enum operation op, Adr left, Adr middle, Adr right, u16 linenum) {
 	Line *new = malloc(sizeof(Line));
-	*new = (Line) { op, left, middle, right };
+	*new = (Line) { op, left, middle, right, linenum};
 	return new;
 }
 
-Line *binary_line(enum operation op, Adr left, Adr right) {
+Line *binary_line(enum operation op, Adr left, Adr right, u16 linenum) {
 	Line *new = malloc(sizeof(Line));
-	*new = (Line) {op, left, blank(), right};
+	*new = (Line) {op, left, blank(), right, linenum};
 	return new;
 }
 
-Line *unary_line(enum operation op, Adr left) {
+Line *unary_line(enum operation op, Adr left, u16 linenum) {
 	Line *new = malloc(sizeof(Line));
-	*new = (Line) {op, left, blank(), blank()};
+	*new = (Line) {op, left, blank(), blank(), linenum};
 	return new;
 }
 
-Line *nonary_line(enum operation op) {
+Line *nonary_line(enum operation op, u16 linenum) {
 	Line *new = malloc(sizeof(Line));
-	*new = (Line) {op, blank(), blank(), blank()};
+	*new = (Line) {op, blank(), blank(), blank(), linenum};
 	return new;
 }
 
 long *heap_long(long k) {
 	long *hk = malloc(sizeof(long));
+	*hk = k;
+	return hk;
+}
+
+int *heap_int(int k) {
+	int *hk = malloc(sizeof(int));
 	*hk = k;
 	return hk;
 }
@@ -217,12 +243,13 @@ Adr adr_of_sds(T_S *ts, sds s) {
 	return mkadr(A_STR, adr);
 }
 
-TAC *tac_create() {
+TAC *tac_create(void) {
 	TAC *tac = malloc(sizeof(TAC));
 	tac->lines = linkedlist_create();
 	tac->strings = linkedlist_create();
 	tac->floats = linkedlist_create();
 	tac->ints = linkedlist_create();
+	tac->arrays = linkedlist_create();
 	return tac;
 }
 
@@ -231,9 +258,12 @@ T_S *t_s_create(TAC *tac, ASTree *ast) {
 	*new = (T_S) {0};
 	new->tac = tac;
 	new->ast = ast;
-	new->seen_strings = hashmap_create(200, hash_str, equal_str);
-	new->seen_intvals = hashmap_create(200, hash_i64, equal_i64);
-	new->seen_floatvals = hashmap_create(200, hash_double, equal_double);
+	new->seen_strings = hashmap_create(50, hash_str, equal_str);
+	new->seen_intvals = hashmap_create(50, hash_i64, equal_i64);
+	new->seen_floatvals = hashmap_create(50, hash_double, equal_double);
+	new->array_len_map = hashmap_create(20, hash_symbol, equal_symbol);
+	new->array_structsize_map = hashmap_create(20, hash_symbol, equal_symbol);
+	new->const_map = hashmap_create(20, hash_symbol, equal_symbol);
 	return new;
 }
 
@@ -241,6 +271,7 @@ Adr tac_resolve_numeric(T_S *ts, ASTNode *node) {
 	enum operation op;
 	int promote_left = 0;
 	int promote_right = 0;
+	Adr tmp;
 	switch (node->type) {
 		case NADD:
 			if (node->symbol_type == SINT) {
@@ -282,6 +313,10 @@ Adr tac_resolve_numeric(T_S *ts, ASTNode *node) {
 			break;
 		case NFCALL:
 			return tac_gen_fncall(ts, node);
+		case NARRV:
+			tmp = mktmp(ts);
+			append_line(ts, binary_line(O_DEREF, tmp, tac_get_adr(ts, node), node->row));
+			return tmp;
 		default: // terminal node
 			return tac_get_adr(ts, node);
 	}
@@ -297,34 +332,58 @@ Adr tac_resolve_numeric(T_S *ts, ASTNode *node) {
 	Adr lhs = tac_resolve_numeric(ts, node->left_child);
 	if (promote_left) {
 		Adr tmp = mktmp(ts);
-		append_line(ts, binary_line(O_ITOF, tmp, lhs));
+		append_line(ts, binary_line(O_ITOF, tmp, lhs, node->row));
 		lhs = tmp;
 	}
 	Adr rhs = tac_resolve_numeric(ts, node->right_child);
 	if (promote_right) {
 		Adr tmp = mktmp(ts);
-		append_line(ts, binary_line(O_ITOF, tmp, rhs));
+		append_line(ts, binary_line(O_ITOF, tmp, rhs, node->row));
 		rhs = tmp;
 	}
-	Adr tmp = mktmp(ts);
-	append_line(ts, ternary_line(op, tmp, lhs, rhs));
+	tmp = mktmp(ts);
+	append_line(ts, ternary_line(op, tmp, lhs, rhs, node->row));
 	return tmp;
 }
 
 enum operation relop_at(ASTNode *node) {
 	switch (node->type) {
 		case NGRT:
-			return O_GT;
+			if (node->left_child->symbol_type == SREAL || node->right_child->symbol_type == SREAL) {
+				return O_GTF;
+			} else {
+				return O_GTI;
+			}
 		case NGEQ:
-			return O_GTE;
+			if (node->left_child->symbol_type == SREAL || node->right_child->symbol_type == SREAL) {
+				return O_GTEF;
+			} else {
+				return O_GTEI;
+			}
 		case NLSS:
-			return O_LT;
+			if (node->left_child->symbol_type == SREAL || node->right_child->symbol_type == SREAL) {
+				return O_LTF;
+			} else {
+				return O_LTI;
+			}
 		case NLEQ:
-			return O_LTE;
+			if (node->left_child->symbol_type == SREAL || node->right_child->symbol_type == SREAL) {
+				return O_LTEF;
+			} else {
+				return O_LTEI;
+			}
 		case NEQL:
-			return O_EQ;
+			if (node->left_child->symbol_type == SREAL || node->right_child->symbol_type == SREAL) {
+				return O_EQF;
+			} else {
+				return O_EQI;
+			}
 		case NNEQ:
-			return O_NEQ;
+			if (node->left_child->symbol_type == SREAL || node->right_child->symbol_type == SREAL) {
+				return O_NEQF;
+			} else {
+				return O_NEQI;
+			}
 		default: abort();
 	}
 }
@@ -335,23 +394,38 @@ Adr tac_resolve_boolean(T_S *ts, ASTNode *node) {
 	enum operation op;
 	Adr lhs;
 	Adr rhs;
+	int promotion = 0;
+	Adr temp;
 	switch (node->type) {
 		case NFALS:
-			append_line(ts, unary_line(O_FALSE, tmp));
+			append_line(ts, unary_line(O_FALSE, tmp, node->row));
 			break;
 		case NTRUE:
-			append_line(ts, unary_line(O_TRUE, tmp));
+			append_line(ts, unary_line(O_TRUE, tmp, node->row));
 			break;
 		case NSIMV:
 		case NARRV:
 			return tac_get_adr(ts, node);
 		case NNOT:
+			if (node->left_child->symbol_type == SREAL || node->right_child->symbol_type == SREAL) {
+				promotion = 1;
+			}
 			lhs = tac_resolve_numeric(ts, node->left_child);
+			if (promotion && node->left_child->symbol_type == SINT) {
+				temp = mktmp(ts);
+				append_line(ts, binary_line(O_ITOF, temp, lhs, node->row));
+				lhs = temp;
+			}
 			rhs = tac_resolve_numeric(ts, node->right_child);
+			if (promotion && node->right_child->symbol_type == SINT) {
+				temp = mktmp(ts);
+				append_line(ts, binary_line(O_ITOF, temp, rhs, node->row));
+				rhs = temp;
+			}
 			op = relop_at(node->middle_child);
-			append_line(ts, ternary_line(op, tmp, lhs, rhs));
+			append_line(ts, ternary_line(op, tmp, lhs, rhs, node->row));
 			not_tmp = mktmp(ts);
-			append_line(ts, binary_line(O_NOT, not_tmp, tmp));
+			append_line(ts, binary_line(O_NOT, not_tmp, tmp, node->row));
 			return not_tmp;
 		case NBOOL:
 			lhs = tac_resolve_boolean(ts, node->left_child);
@@ -366,9 +440,9 @@ Adr tac_resolve_boolean(T_S *ts, ASTNode *node) {
 				case NXOR:
 					op = O_XOR;
 					break;
-				default: break;
+				default: abort();
 			}
-			append_line(ts, ternary_line(op, tmp, lhs, rhs));
+			append_line(ts, ternary_line(op, tmp, lhs, rhs, node->row));
 			break;
 		case NEQL:
 		case NNEQ:
@@ -376,10 +450,23 @@ Adr tac_resolve_boolean(T_S *ts, ASTNode *node) {
 		case NLSS:
 		case NLEQ:
 		case NGEQ:
+			if (node->left_child->symbol_type == SREAL || node->right_child->symbol_type == SREAL) {
+				promotion = 1;
+			}
 			lhs = tac_resolve_numeric(ts, node->left_child);
+			if (promotion && node->left_child->symbol_type == SINT) {
+				temp = mktmp(ts);
+				append_line(ts, binary_line(O_ITOF, temp, lhs, node->row));
+				lhs = temp;
+			}
 			rhs = tac_resolve_numeric(ts, node->right_child);
+			if (promotion && node->right_child->symbol_type == SINT) {
+				temp = mktmp(ts);
+				append_line(ts, binary_line(O_ITOF, temp, rhs, node->row));
+				rhs = temp;
+			}
 			op = relop_at(node);
-			append_line(ts, ternary_line(op, tmp, lhs, rhs));
+			append_line(ts, ternary_line(op, tmp, lhs, rhs, node->row));
 			break;
 		case NFCALL:
 			return tac_gen_fncall(ts, node);
@@ -397,28 +484,55 @@ Adr tac_resolve_expr(T_S *ts, ASTNode *node) {
 		case SREAL:
 			return tac_resolve_numeric(ts, node);
 			break;
-		// TODO arrays
-		/* case SARRAY: */
-		/* 	codegen_array_push(cdg, node); */
-		/* 	break; */
+		case SARRAY:
+			return tac_get_adr(ts, node);
+			break;
 		default: abort();
 	}
 }
 
+static int unscoped_symbol_equals(const Symbol *s1, const Symbol *s2) {
+	return s1->index.start == s2->index.start &&
+	       s1->index.len   == s2->index.len;
+}
+
+// TODO: fix name. this gets values, except for arrays which return pointers
 Adr tac_get_adr(T_S *ts, ASTNode *node) {
 	enum adr_type type;
 	u16 adr;
 	int ival;
 	double fval;
+	Adr tmp0;
+	Adr tmp1;
+	Adr tmp2;
+	Adr array_start;
+	u16 offset;
+	Attribute *array_atr;
+	int struct_size;
+	Symbol globscoped;
 	switch (node->type) {
 		case NSIMV:
-			// TODO consts
+			globscoped = *node->symbol_value;
+			globscoped.scope = 0;
+			if (hashmap_get(ts->const_map, &globscoped)) {
+				int val = *(int*)hashmap_get(ts->const_map, &globscoped);
+				switch (node->symbol_type) {
+					case SINT:
+						return mkadr(A_ILIT, val);
+					case SREAL:
+						return mkadr(A_FLIT, val);
+					default: abort();
+				}
+			}
 			if (astree_is_param(ts->ast, node->symbol_value)) {
 				type = A_PARAM;
+			} else if (node->symbol_type == SARRAY) {
+				type = A_ARRAY;
 			} else {
 				type = A_VAR;
 			}
 			adr = astree_get_offset(ts->ast, node->symbol_value);
+			return mkadr(type, adr);
 			break;
 		case NILIT:
 			ival = sym_to_int(ts->ast, node->symbol_value);
@@ -430,25 +544,90 @@ Adr tac_get_adr(T_S *ts, ASTNode *node) {
 			return tac_resolve_numeric(ts, node);
 		case NFALS: case NTRUE: case NBOOL: case NNOT: case NEQL: case NNEQ: case NGRT: case NGEQ: case NLSS: case NLEQ:
 			return tac_resolve_boolean(ts, node);
-		/* case NARRV: */
-		/* 	break; */
-		/* case NAELT: */
-		/* 	break; */
+		case NARRV:
+			array_atr = astree_get_attribute(ts->ast, node->left_child->symbol_value);
+			offset = astree_get_offset(ts->ast, node->left_child->symbol_value);
+			if (array_atr->is_param) {
+				type = A_PARAM;
+			} else {
+				type = A_ARRAY;
+			}
+			array_start = mkadr(type, offset);
+			Adr index = tac_resolve_numeric(ts, node->right_child);
+			// todo: why is the scope of that not 0? it's written as 0
+			((Symbol*)array_atr->data)->scope = 0;
+			struct_size = *(int*)hashmap_get(ts->array_structsize_map, array_atr->data);
+			tmp0 = mktmp(ts);
+			append_line(ts, ternary_line(O_MULI, tmp0, index, adr_of_int(ts, struct_size), node->row));
+			tmp1 = mktmp(ts);
+			append_line(ts, ternary_line(O_ADDI, tmp1, array_start, tmp0, node->row));
+			int struct_offset = 0;
+			Attribute *struct_atr = astree_get_attribute(ts->ast, array_atr->data);
+			Attribute *struct_fields = astree_get_attribute(ts->ast, struct_atr->data);
+			LinkedList *elements = (LinkedList *)struct_fields->data;
+			linkedlist_start(elements);
+			Symbol *target_element = node->symbol_value;
+			while (!unscoped_symbol_equals(
+				((Element*)linkedlist_get_current(elements))->name,
+				target_element
+			) ) {
+				linkedlist_forward(elements);
+				struct_offset += 8;
+			}
+			Adr withinstruct = adr_of_int(ts, struct_offset);
+			/* tmp4 = mktmp(ts); */
+			/* append_line(ts, ternary_line(O_MULI, tmp4, adr_of_int(ts, 8), withinstruct)); */
+			tmp2 = mktmp(ts);
+			append_line(ts, ternary_line(O_ADDI, tmp2, tmp1, withinstruct, node->row));
+			return tmp2;
+			/* tmp3 = mktmp(ts); */
+			/* binary_line(O_DEREF, tmp3, tmp2); */
+			/* return tmp3; */
+			break;
+		case NAELT:
+			array_atr = astree_get_attribute(ts->ast, node->left_child->symbol_value);
+			offset = astree_get_offset(ts->ast, node->left_child->symbol_value);
+			if (array_atr->is_param) {
+				type = A_PARAM;
+			} else {
+				type = A_ARRAY;
+			}
+			array_start = mkadr(type, offset);
+			// TODO: study how the next line breaks the whole program (tmp0 unitialised)
+			/* append_line(ts, binary_line(O_ASIGN, tmp0, array_start, node->row)); */
+			Adr diff = tac_resolve_numeric(ts, node->right_child);
+			Adr muldiff = mktmp(ts);
+			struct_size = *(int*)hashmap_get(ts->array_structsize_map, array_atr->data);
+			append_line(ts, ternary_line(O_MULI, muldiff, diff, adr_of_int(ts, struct_size), node->row));
+			tmp1 = mktmp(ts);
+			append_line(ts, ternary_line(O_ADDI, tmp1, array_start, muldiff, node->row));
+			return tmp1;
+		case NFCALL:
+			return tac_gen_fncall(ts, node);
 		default: abort();
 	}
-	return mkadr(type, adr);
 }
 
 void tac_gen_plist(T_S *ts, ASTNode *node) {
-	// todo: this could be in parser
+	// TODO: this could be in parser
 	u16 num_vars = 0;
 	while (node->type == NPLIST) {
-		astree_set_offset(ts->ast, node->left_child->symbol_value, num_vars++);
-		astree_mark_param(ts->ast, node->left_child->symbol_value);
+		if (node->left_child->type == NARRC) {
+			astree_set_offset(ts->ast, node->left_child->left_child->symbol_value, num_vars++);
+			astree_mark_param(ts->ast, node->left_child->left_child->symbol_value);
+		} else {
+			astree_set_offset(ts->ast, node->left_child->symbol_value, num_vars++);
+			astree_mark_param(ts->ast, node->left_child->symbol_value);
+		}
 		node = node->right_child;
 	}
-	astree_set_offset(ts->ast, node->symbol_value, num_vars++);
-	astree_mark_param(ts->ast, node->symbol_value);
+	if (node->left_child && node->left_child->type == NARRC) {
+		astree_set_offset(ts->ast, node->left_child->left_child->symbol_value, num_vars++);
+		astree_mark_param(ts->ast, node->left_child->left_child->symbol_value);
+	} else {
+		astree_set_offset(ts->ast, node->symbol_value, num_vars++);
+		astree_mark_param(ts->ast, node->symbol_value);
+	}
 }
 
 void tac_gen_func_locals(T_S *ts, ASTNode *node) {
@@ -461,8 +640,8 @@ void tac_gen_func_locals(T_S *ts, ASTNode *node) {
 	}
 	// somehow cursor->symbol_vaue is null???
 	astree_set_offset(ts->ast, cursor->symbol_value, num_vars++);
-	Adr vars_num_adr = adr_of_int(ts, num_vars);
-	append_line(ts, unary_line(O_ALLOC, vars_num_adr));
+	/* Adr vars_num_adr = adr_of_int(ts, num_vars); */
+	/* append_line(ts, unary_line(O_ALLOC, vars_num_adr)); */
 	cursor = node;
 	while (cursor->type == NDLIST) {
 		tac_gen_sdecl(ts, cursor->left_child); // technically this is _decl, but identical code
@@ -473,13 +652,12 @@ void tac_gen_func_locals(T_S *ts, ASTNode *node) {
 
 void tac_gen_func(T_S *ts, ASTNode* nfuncs) {
 	Adr fname = adr_of_sds(ts, sds_from_symbol(ts->ast, nfuncs->symbol_value));
-	append_line(ts, unary_line(O_FUNC, fname));
+	append_line(ts, unary_line(O_FUNC, fname, 0));
 	tac_gen_plist(ts, nfuncs->left_child);
 	tac_gen_func_locals(ts, nfuncs->middle_child);
 	tac_gen_stats(ts, nfuncs->right_child);
-	// reset these counters to keep labels and temp reg's local (might remove later)
+	// reset these counters to keep temp reg's local
 	ts->temp_reg_counter = 0;
-	ts->label_counter = 0;
 }
 
 void tac_gen_funcs(T_S *ts, ASTNode *nfuncs) {
@@ -496,60 +674,55 @@ void tac_gen_funcs(T_S *ts, ASTNode *nfuncs) {
 void tac_gen_nasgn(T_S *ts, ASTNode *node) {
 	Adr lhs = tac_get_adr(ts, node->left_child);
 	Adr rhs;
+	Attribute *array_atr;
 	switch (node->right_child->symbol_type) {
 		case SINT:
 		case SREAL:
 			rhs = tac_resolve_numeric(ts, node->right_child);
-			append_line(ts, binary_line(O_ASIGN, lhs, rhs));
+			if (node->left_child->type == NARRV) {
+				append_line(ts, binary_line(O_STORE, lhs, rhs, node->row));
+			} else {
+				append_line(ts, binary_line(O_ASIGN, lhs, rhs, node->row));
+			}
 			break;
 		case SBOOL:
 			rhs = tac_resolve_boolean(ts, node->right_child);
-			append_line(ts, binary_line(O_ASIGN, lhs, rhs));
+			if (node->left_child->type == NARRV) {
+				append_line(ts, binary_line(O_STORE, lhs, rhs, node->row));
+			} else {
+				append_line(ts, binary_line(O_ASIGN, lhs, rhs, node->row));
+			}
 			break;
-			/* TODO arrays
 		case SARRAY:
-			Attribute *array_atr0 = astree_get_attribute(cdg->ast, node->left_child->symbol_value);
-			int array_size = *(int*)hashmap_get(cdg->array_len_map, array_atr0->data);
-			// todo: figure out how to do an inline loop, by creating i as a variable on the stack, then referencing it. would be easy if "top of stack" was a base register
+			array_atr = astree_get_attribute(ts->ast, node->left_child->symbol_value);
+			int array_size = *(int*)hashmap_get(ts->array_len_map, array_atr->data);
+			// todo: inline loop with labels?
+			rhs = tac_get_adr(ts, node->right_child);
 			for (int i = 0; i < array_size; ++i) {
-				codegen_array_push(cdg, node->left_child);
-				push_int_by_val(cdg, i);
-				push_instruction(cdg, INDEX, 0);
-				codegen_array_push(cdg, node->right_child);
-				push_int_by_val(cdg, i);
-				push_instruction(cdg, INDEX, 0);
-				push_instruction(cdg, L, 0);
-				push_instruction(cdg, ST, 0);
+				Adr tmp0 = mktmp(ts);
+				append_line(ts, ternary_line(O_ADDI, tmp0, lhs, adr_of_int(ts, i*8), node->row));
+				Adr tmp1 = mktmp(ts);
+				append_line(ts, ternary_line(O_ADDI, tmp1, rhs, adr_of_int(ts, i*8), node->row));
+				Adr tmp2 = mktmp(ts);
+				append_line(ts, binary_line(O_DEREF, tmp2, tmp1, node->row));
+				append_line(ts, binary_line(O_STORE, tmp0, tmp2, node->row));
 			}
 			break;
 		case SSTRUCT:
-			Attribute *array_atr = astree_get_attribute(cdg->ast, node->left_child->left_child->symbol_value);
-			int struct_size = *(int*)hashmap_get(cdg->array_structsize_map, array_atr->data);
-			int field = 0;
-			for (int field = 0; field < struct_size; ++field) {
-				codegen_array_push(cdg, node->left_child->left_child);
-				codegen_numeric_push(cdg, node->left_child->right_child);
-				if (struct_size != 1) {
-					push_int_by_val(cdg, struct_size);
-					push_instruction(cdg, MUL, 0);
-				}
-				push_int_by_val(cdg, field);
-				push_instruction(cdg, ADD, 0);
-				push_instruction(cdg, INDEX, 0);
-				codegen_array_push(cdg, node->right_child->left_child);
-				codegen_numeric_push(cdg, node->right_child->right_child);
-				if (struct_size != 1) {
-					push_int_by_val(cdg, struct_size);
-					push_instruction(cdg, MUL, 0);
-				}
-				push_int_by_val(cdg, field);
-				push_instruction(cdg, ADD, 0);
-				push_instruction(cdg, INDEX, 0);
-				push_instruction(cdg, L, 0);
-				push_instruction(cdg, ST, 0);
+			array_atr = astree_get_attribute(ts->ast, node->left_child->left_child->symbol_value);
+			int struct_size = *(int*)hashmap_get(ts->array_structsize_map, array_atr->data);
+			// todo: inline loop with labels?
+			rhs = tac_get_adr(ts, node->right_child);
+			for (int i = 0; i < struct_size; i += 8) {
+				Adr tmp0 = mktmp(ts);
+				append_line(ts, ternary_line(O_ADDI, tmp0, lhs, adr_of_int(ts, i), node->row));
+				Adr tmp1 = mktmp(ts);
+				append_line(ts, ternary_line(O_ADDI, tmp1, rhs, adr_of_int(ts, i), node->row));
+				Adr tmp2 = mktmp(ts);
+				append_line(ts, binary_line(O_DEREF, tmp2, tmp1, node->row));
+				append_line(ts, binary_line(O_STORE, tmp0, tmp2, node->row));
 			}
 			break;
-			*/
 		default: abort();
 	}
 }
@@ -558,30 +731,31 @@ void tac_gen_nasgnop(T_S *ts, ASTNode *node) {
 	Adr lhs = tac_get_adr(ts, node->left_child);
 	enum operation op;
 	Adr rhs = tac_resolve_numeric(ts, node->right_child);
+	int promote_right = 0;
 	switch (node->type) {
 		case NPLEQ:
-			if (node->symbol_type == SINT) {
+			if (node->left_child->symbol_type == SINT) {
 				op = O_ADDI;
 			} else {
 				op = O_ADDF;
 			}
 			break;
 		case NMNEQ:
-			if (node->symbol_type == SINT) {
+			if (node->left_child->symbol_type == SINT) {
 				op = O_SUBI;
 			} else {
 				op = O_SUBF;
 			}
 			break;
 		case NSTEA:
-			if (node->symbol_type == SINT) {
+			if (node->left_child->symbol_type == SINT) {
 				op = O_MULI;
 			} else {
 				op = O_MULF;
 			}
 			break;
 		case NDVEQ:
-			if (node->symbol_type == SINT) {
+			if (node->left_child->symbol_type == SINT) {
 				op = O_DIVI;
 			} else {
 				op = O_DIVF;
@@ -589,7 +763,25 @@ void tac_gen_nasgnop(T_S *ts, ASTNode *node) {
 			break;
 		default: abort();
 	}
-	append_line(ts, ternary_line(op, lhs, lhs, rhs));
+	if (node->left_child->symbol_type == SREAL) {
+		if (node->right_child->symbol_type == SINT) {
+			promote_right = 1;
+		}
+	}
+	if (promote_right) {
+		Adr tmp = mktmp(ts);
+		append_line(ts, binary_line(O_ITOF, tmp, rhs, node->row));
+		rhs = tmp;
+	}
+	if (node->left_child->type == NAELT) {
+		Adr t1 = mktmp(ts);
+		append_line(ts, binary_line(O_DEREF, t1, lhs, node->row));
+		Adr t2 = mktmp(ts);
+		append_line(ts, ternary_line(op, t2, t1, rhs, node->row));
+		append_line(ts, binary_line(O_STORE, lhs, t2, node->row));
+	} else {
+		append_line(ts, ternary_line(op, lhs, lhs, rhs, node->row));
+	}
 }
 
 void tac_gen_asgnlist(T_S *ts, ASTNode *node) {
@@ -605,54 +797,54 @@ void tac_gen_asgnlist(T_S *ts, ASTNode *node) {
 void tac_gen_if(T_S *ts, ASTNode *node) {
 	Adr label = mklabel(ts);
 	Adr cond = tac_resolve_boolean(ts, node->left_child);
-	append_line(ts, binary_line(O_GOTOF, label, cond));
+	append_line(ts, binary_line(O_GOTOF, label, cond, 0));
 	tac_gen_stats(ts, node->right_child);
-	append_line(ts, unary_line(O_LABEL, label));
+	append_line(ts, unary_line(O_LABEL, label, 0));
 }
 
 void tac_gen_ifelse(T_S *ts, ASTNode *node) {
 	Adr truelabel = mklabel(ts);
 	Adr falselabel = mklabel(ts);
 	Adr cond = tac_resolve_boolean(ts, node->left_child);
-	append_line(ts, binary_line(O_GOTOF, falselabel, cond));
+	append_line(ts, binary_line(O_GOTOF, falselabel, cond, 0));
 	tac_gen_stats(ts, node->middle_child);
-	append_line(ts, unary_line(O_GOTO, truelabel));
-	append_line(ts, unary_line(O_LABEL, falselabel));
+	append_line(ts, unary_line(O_GOTO, truelabel, 0));
+	append_line(ts, unary_line(O_LABEL, falselabel, 0));
 	tac_gen_stats(ts, node->right_child);
-	append_line(ts, unary_line(O_LABEL, truelabel));
+	append_line(ts, unary_line(O_LABEL, truelabel, 0));
 }
 
 void tac_gen_for(T_S *ts, ASTNode *node) {
 	tac_gen_asgnlist(ts, node->left_child);
 	Adr start = mklabel(ts);
 	Adr end = mklabel(ts);
-	append_line(ts, unary_line(O_LABEL, start));
+	append_line(ts, unary_line(O_LABEL, start, 0));
 	Adr cond = tac_resolve_boolean(ts, node->middle_child);
-	append_line(ts, binary_line(O_GOTOF, end, cond));
+	append_line(ts, binary_line(O_GOTOF, end, cond, 0));
 	tac_gen_stats(ts, node->right_child);
-	append_line(ts, unary_line(O_GOTO, start));
-	append_line(ts, unary_line(O_LABEL, end));
+	append_line(ts, unary_line(O_GOTO, start, 0));
+	append_line(ts, unary_line(O_LABEL, end, 0));
 }
 
 void tac_gen_repeat(T_S *ts, ASTNode *node) {
 	tac_gen_asgnlist(ts, node->left_child);
 	Adr start = mklabel(ts);
-	append_line(ts, unary_line(O_LABEL, start));
+	append_line(ts, unary_line(O_LABEL, start, 0));
 	tac_gen_stats(ts, node->middle_child);
 	Adr cond = tac_resolve_boolean(ts, node->right_child);
-	append_line(ts, binary_line(O_GOTOF, start, cond));
+	append_line(ts, binary_line(O_GOTOF, start, cond, 0));
 }
 
 void tac_gen_printitem(T_S*ts, ASTNode *node) {
 	if (node->type == NSTRG) {
 		Adr str_adr = adr_of_sds(ts, sds_from_symbol(ts->ast, node->symbol_value));
-		append_line(ts, unary_line(O_PRINTSTR, str_adr));
+		append_line(ts, unary_line(O_PRINTSTR, str_adr, node->row));
 	} else {
 		/* Adr space = adr_of_sds(ts, sdsnew(" ")); */
 		/* append_line(ts, unary_line(O_PARAM, space)); */
 		/* Adr printf_adr = adr_of_sds(ts, sdsnew("printf")); */
 		/* append_line(ts, binary_line(O_CALL, printf_adr, adr_of_int(ts, 1))); */
-		append_line(ts, nonary_line(O_PRINTSPC));
+		append_line(ts, nonary_line(O_PRINTSPC, node->row));
 		Adr outp = tac_get_adr(ts, node);
 		enum operation op;
 		if (node->symbol_type == SINT) {
@@ -660,7 +852,12 @@ void tac_gen_printitem(T_S*ts, ASTNode *node) {
 		} else {
 			op = O_PRINTF;
 		}
-		append_line(ts, unary_line(op, outp));
+		if (node->type == NARRV) {
+			Adr tmp = mktmp(ts);
+			append_line(ts, binary_line(O_DEREF, tmp, outp, node->row));
+			outp = tmp;
+		}
+		append_line(ts, unary_line(op, outp, node->row));
 	}
 }
 
@@ -679,19 +876,29 @@ void tac_gen_noutp(T_S *ts, ASTNode *node) {
 
 void tac_gen_noutl(T_S *ts, ASTNode *node) {
 	if (!node->left_child) {
-		append_line(ts, nonary_line(O_PRINTLN));
+		append_line(ts, nonary_line(O_PRINTLN, node->row));
 		return;
 	}
 	tac_gen_prlist(ts, node->left_child);
-	append_line(ts, nonary_line(O_PRINTLN));
+	append_line(ts, nonary_line(O_PRINTLN, node->row));
 }
 
 void tac_gen_input_var(T_S *ts, ASTNode *node) {
 	Adr left = tac_get_adr(ts, node);
-	if (node->symbol_type == SREAL) {
-		append_line(ts, unary_line(O_READF, left));
+	if (node->type == NARRV) {
+		Adr input = mktmp(ts);
+		if (node->symbol_type == SREAL) {
+			append_line(ts, unary_line(O_READF, input, node->row));
+		} else {
+			append_line(ts, unary_line(O_READI, input, node->row));
+		}
+		append_line(ts, binary_line(O_STORE, left, input, node->row));
 	} else {
-		append_line(ts, unary_line(O_READI, left));
+		if (node->symbol_type == SREAL) {
+			append_line(ts, unary_line(O_READF, left, node->row));
+		} else {
+			append_line(ts, unary_line(O_READI, left, node->row));
+		}
 	}
 }
 
@@ -712,12 +919,12 @@ void tac_gen_parameters(T_S *ts, ASTNode *node, u16 *paramcount) {
 	if (!node) return;
 	if (node->type == NEXPL) {
 		Adr par = tac_resolve_expr(ts, node->left_child);
-		append_line(ts, unary_line(O_PARAM, par));
 		(*paramcount)++;
 		tac_gen_parameters(ts, node->right_child, paramcount);
+		append_line(ts, unary_line(O_PARAM, par, node->row));
 	} else {
 		Adr par = tac_resolve_expr(ts, node);
-		append_line(ts, unary_line(O_PARAM, par));
+		append_line(ts, unary_line(O_PARAM, par, node->row));
 		(*paramcount)++;
 	}
 }
@@ -727,7 +934,7 @@ void tac_gen_callstat(T_S *ts, ASTNode *node) {
 	tac_gen_parameters(ts, node->left_child, &paramcount);
 	Adr pcount = adr_of_int(ts, paramcount);
 	Adr fname = adr_of_sds(ts, sds_from_symbol(ts->ast, node->symbol_value));
-	append_line(ts, binary_line(O_CALL, fname, pcount));
+	append_line(ts, binary_line(O_CALL, fname, pcount, node->row));
 }
 
 Adr tac_gen_fncall(T_S *ts, ASTNode *node) {
@@ -736,16 +943,16 @@ Adr tac_gen_fncall(T_S *ts, ASTNode *node) {
 	tac_gen_parameters(ts, node->left_child, &paramcount);
 	Adr pcount = adr_of_int(ts, paramcount);
 	Adr fname = adr_of_sds(ts, sds_from_symbol(ts->ast, node->symbol_value));
-	append_line(ts, ternary_line(O_CALLVAL, tmp, fname, pcount));
+	append_line(ts, ternary_line(O_CALLVAL, tmp, fname, pcount, node->row));
 	return tmp;
 }
 
 void tac_gen_returnstat(T_S *ts, ASTNode *node) {
 	if (node->left_child) {
 		Adr radr = tac_resolve_expr(ts, node->left_child);
-		append_line(ts, unary_line(O_RVAL, radr));
+		append_line(ts, unary_line(O_RVAL, radr, node->row));
 	} else {
-		append_line(ts, nonary_line(O_RETN));
+		append_line(ts, nonary_line(O_RETN, node->row));
 	}
 }
 
@@ -808,15 +1015,15 @@ void tac_gen_sdecl(T_S *ts, ASTNode *node) {
 	switch (node->symbol_type) {
 		case SREAL:
 			offset = astree_get_offset(ts->ast, node->symbol_value);
-			append_line(ts, binary_line(O_ASIGN, mkadr(A_VAR, offset), adr_of_double(ts, 0.0)));
+			append_line(ts, binary_line(O_ASIGN, mkadr(A_VAR, offset), adr_of_double(ts, 0.0), 0));
 			break;
 		case SINT:
 			offset = astree_get_offset(ts->ast, node->symbol_value);
-			append_line(ts, binary_line(O_ASIGN, mkadr(A_VAR, offset), adr_of_int(ts, 0)));
+			append_line(ts, binary_line(O_ASIGN, mkadr(A_VAR, offset), adr_of_int(ts, 0), 0));
 			break;
 		case SBOOL: // assumption: uninitialised booleans are false
 			offset = astree_get_offset(ts->ast, node->symbol_value);
-			append_line(ts, unary_line(O_FALSE, mkadr(A_VAR, offset)));
+			append_line(ts, unary_line(O_FALSE, mkadr(A_VAR, offset), 0));
 			break;
 		default: abort();
 	}
@@ -830,8 +1037,8 @@ void tac_gen_slist(T_S *ts, ASTNode *node) {
 		cursor = cursor->right_child;
 	}
 	astree_set_offset(ts->ast, cursor->symbol_value, num_vars++);
-	Adr vars_num_adr = adr_of_int(ts, num_vars);
-	append_line(ts, unary_line(O_ALLOC, vars_num_adr));
+	/* Adr vars_num_adr = adr_of_int(ts, num_vars); */
+	/* append_line(ts, unary_line(O_ALLOC, vars_num_adr)); */
 	cursor = node;
 	while (cursor->type == NSDLST) {
 		tac_gen_sdecl(ts, cursor->left_child);
@@ -855,12 +1062,127 @@ void t_s_free(T_S *ts) {
 	hashmap_free(ts->seen_strings, sdsfree_wrapper_unary, free);
 }
 
+void tac_gen_init(T_S *ts, ASTNode* node) {
+	if (node->left_child->type != NILIT && node->left_child->type != NFLIT) {
+		// todo: put constexpr here (nontrivial because int is not symbol)
+		printf("sorry, only integer/float literals are implemented as constants\n");
+		return;
+	}
+	if (node->left_child->type == NILIT) {
+		sds s = sds_from_symbol(ts->ast, node->left_child->symbol_value);
+		long val = atol(s);
+		linkedlist_push_tail(ts->tac->ints, heap_long(val));
+		/* astree_set_offset(ts->ast, node->symbol_value, ts->int_counter++); */
+		hashmap_add(ts->const_map, node->symbol_value, heap_int(ts->int_counter++));
+	}
+	if (node->left_child->type == NFLIT) {
+		sds s = sds_from_symbol(ts->ast, node->left_child->symbol_value);
+		double val = atof(s);
+		linkedlist_push_tail(ts->tac->ints, heap_double(val));
+		/* astree_set_offset(ts->ast, node->symbol_value, ts->float_counter++); */
+		hashmap_add(ts->const_map, node->symbol_value, heap_int(ts->float_counter++));
+	}
+}
+
+void tac_gen_consts(T_S *ts, ASTNode* node) {
+	if (!node) return;
+	while (node->type == NILIST) {
+		tac_gen_init(ts, node->left_child);
+		node = node->right_child;
+	}
+	tac_gen_init(ts, node);
+}
+
+// TODO: constfloat
+int tac_gen_constint(T_S *ts, ASTNode* node) {
+	sds glyph;
+	int result;
+	int offset;
+	switch (node->type) {
+		case NILIT:
+			glyph = sds_from_symbol(ts->ast, node->symbol_value);
+			result = atoi(glyph);
+			sdsfree(glyph);
+			return result;
+		case NSIMV:
+			offset = *(int*)hashmap_get(ts->const_map, node->symbol_value);
+			linkedlist_start(ts->tac->ints);
+			for (int i = 0; i < offset; ++i) {
+				linkedlist_forward(ts->tac->ints);
+			}
+			return *(int*)linkedlist_get_current(ts->tac->ints);
+		default: abort();
+	}
+	int lhs = tac_gen_constint(ts, node->left_child);
+	int rhs = tac_gen_constint(ts, node->right_child);
+	switch (node->type) {
+		case NADD:
+			return lhs + rhs;
+		case NMUL:
+			return lhs * rhs;
+		case NSUB:
+			return lhs - rhs;
+		case NDIV:
+			return lhs / rhs;
+		case NMOD:
+			return lhs % rhs;
+		default: abort();
+	}
+}
+
+void tac_gen_arrtype(T_S *ts, ASTNode *node) {
+	Attribute *struct_atr = astree_get_attribute(ts->ast, node->symbol_value);
+	Attribute *struct_fields = astree_get_attribute(ts->ast, struct_atr->data);
+	LinkedList *elements = (LinkedList *)struct_fields->data;
+	int structsize = 8 * linkedlist_len(elements);
+	int len = structsize * tac_gen_constint(ts, node->left_child);
+	hashmap_add(ts->array_len_map, node->symbol_value, heap_int(len));
+	hashmap_add(ts->array_structsize_map, node->symbol_value, heap_int(structsize));
+}
+
+void tac_gen_types(T_S *ts, ASTNode *node) {
+	if (!node) return;
+	while (node->type == NTYPEL) {
+		if (node->type == NATYPE)
+			tac_gen_arrtype(ts, node->left_child);
+		node = node->right_child;
+	}
+	if (node->type == NATYPE)
+		tac_gen_arrtype(ts, node);
+}
+
+void tac_gen_array(T_S *ts, ASTNode *node) {
+	if (!node) return;
+	Attribute *atr = astree_get_attribute(ts->ast, node->symbol_value);
+	u16 arr_offset = ts->array_counter++;
+	astree_set_offset(ts->ast, node->symbol_value, arr_offset);
+	int len = * (int*)hashmap_get(ts->array_len_map, atr->data);
+	linkedlist_push_tail(ts->tac->arrays, heap_int(len));
+}
+
+void tac_gen_arrays(T_S *ts, ASTNode *node) {
+	if (!node) return;
+	while (node->type == NALIST) {
+		tac_gen_array(ts, node->left_child);
+		node = node->right_child;
+	}
+	tac_gen_array(ts, node);
+}
+
+void tac_gen_globals(T_S *ts, ASTNode* nglobs) {
+	if (!nglobs) return;
+	tac_gen_consts(ts, nglobs->left_child);
+	tac_gen_types(ts, nglobs->middle_child);
+	tac_gen_arrays(ts, nglobs->right_child);
+}
+
 TAC *tac_from_ast(ASTree *ast) {
 	TAC *tac = tac_create();
 	T_S *state = t_s_create(tac, ast);
+	tac_gen_globals(state, ast->root->left_child);
 	tac_gen_funcs(state, ast->root->middle_child);
 	Adr main = adr_of_sds(state, sdsnew("main"));
-	linkedlist_push_tail(tac->lines, unary_line(O_FUNC, main));
+	linkedlist_push_tail(tac->lines, unary_line(O_FUNC, main, 0));
 	tac_gen_main(state, ast->root->right_child);
 	t_s_free(state);
 	return tac;
@@ -874,38 +1196,15 @@ void tac_free(TAC* tac) {
 	linkedlist_free(tac->lines);
 	linkedlist_free(tac->ints);
 	linkedlist_free(tac->floats);
+	linkedlist_free(tac->arrays);
 	linkedlist_free_ctx(tac->strings, sdsfree_wrapper);
 }
 
 void print_adr(Adr adr) {
-	switch (adr.type) {
-		case A_TMP:
-			printf("T");
-			break;
-		case A_LABEL:
-			printf("L");
-			break;
-		case A_VAR:
-			printf("V");
-			break;
-		case A_PARAM:
-			printf("P");
-			break;
-		case A_ILIT:
-			printf("I");
-			break;
-		case A_FLIT:
-			printf("F");
-			break;
-		case A_STR:
-			printf("S");
-			break;
-		case A_CONST:
-			printf("C");
-			break;
-		case A_EMPTY: return;
+	if (adr.type == A_EMPTY) {
+		abort();
 	}
-	printf("%d", adr.adr);
+	printf("%s%d", adr_prefix[adr.type], adr.adr);
 }
 
 void print_tac_line(Line *l) {
@@ -936,7 +1235,7 @@ void print_tac_line(Line *l) {
 			break;
 		// unary void
 		case O_PRINTI: case O_PRINTF: case O_PRINTSTR:
-		case O_LABEL: case O_GOTO: case O_ALLOC:
+		case O_LABEL: case O_GOTO:
 		case O_PARAM: case O_RVAL:
 			printf("%s ", print_op[l->op]);
 			print_adr(l->left);
@@ -949,6 +1248,7 @@ void print_tac_line(Line *l) {
 		// binary void
 		case O_GOTOF: case O_GOTOT:
 		case O_CALL:
+		case O_STORE:
 			printf("%s ", print_op[l->op]);
 			print_adr(l->left);
 			printf(" ");
@@ -958,14 +1258,16 @@ void print_tac_line(Line *l) {
 		// binary asign
 		case O_ITOF:
 		case O_NOT:
+		case O_DEREF:
+		case O_ALLOC:
 			print_adr(l->left);
-			printf(" = ");
-			printf("%s ", print_op[l->op]);
+			printf(" = %s ", print_op[l->op]);
 			print_adr(l->right);
 			break;
 		// ternary
 		case O_ADDF: case O_ADDI: case O_SUBF: case O_SUBI: case O_MULF: case O_MULI: case O_DIVF: case O_DIVI: case O_POWIF: case O_POWII: case O_MOD:
-		case O_EQ: case O_NEQ: case O_LT: case O_LTE: case O_GT: case O_GTE:
+		case O_EQI: case O_NEQI: case O_LTI: case O_LTEI: case O_GTI: case O_GTEI:
+		case O_EQF: case O_NEQF: case O_LTF: case O_LTEF: case O_GTF: case O_GTEF:
 		case O_OR: case O_AND: case O_XOR:
 			print_adr(l->left);
 			printf(" = ");
@@ -978,12 +1280,19 @@ void print_tac_line(Line *l) {
 }
 
 void tac_printf(TAC* tac) {
-	// todo: consts
+	int i;
+	i = 0;
+	int *k;
+	printf(".arrays (zero-init):\n");
+	linkedlist_start(tac->arrays);
+	while ((k=(int*)linkedlist_get_current(tac->arrays))) {
+		printf("A%d: %d\n", i, *k);
+		linkedlist_forward(tac->arrays);
+		++i;
+	}
+	i = 0;
 	printf(".ints:\n");
 	linkedlist_start(tac->ints);
-	int linenum = 1;
-	int i = 0;
-	int *k;
 	while ((k=(int*)linkedlist_get_current(tac->ints))) {
 		printf("I%d: %d\n", i, *k);
 		linkedlist_forward(tac->ints);
@@ -1011,10 +1320,43 @@ void tac_printf(TAC* tac) {
 	linkedlist_start(tac->lines);
 	Line *l;
 	while ((l=(Line*)linkedlist_get_current(tac->lines))) {
-		if (l->op != O_FUNC && l->op != O_LABEL) {
-			printf("%d: ", linenum++);
+		if (l->linenum != 0) {
+			printf("%d: ", l->linenum);
 		}
 		print_tac_line(l);
 		linkedlist_forward(tac->lines);
 	}
 }
+
+void* tac_data(TAC* tac, Adr adr) {
+	int i;
+	switch (adr.type) {
+		case A_ILIT:
+			linkedlist_start(tac->ints);
+			for (i = 0; i < adr.adr; ++i) {
+				linkedlist_forward(tac->ints);
+			}
+			return linkedlist_get_current(tac->ints);
+		case A_ARRAY:
+			linkedlist_start(tac->arrays);
+			for (i = 0; i < adr.adr; ++i) {
+				linkedlist_forward(tac->arrays);
+			}
+			return linkedlist_get_current(tac->arrays);
+		case A_FLIT:
+			linkedlist_start(tac->floats);
+			for (i = 0; i < adr.adr; ++i) {
+				linkedlist_forward(tac->floats);
+			}
+			return linkedlist_get_current(tac->floats);
+		case A_STR:
+			linkedlist_start(tac->strings);
+			for (i = 0; i < adr.adr; ++i) {
+				linkedlist_forward(tac->strings);
+			}
+			return linkedlist_get_current(tac->strings);
+		default:
+			abort();
+	}
+}
+
