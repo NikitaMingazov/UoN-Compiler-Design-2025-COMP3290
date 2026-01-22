@@ -1075,7 +1075,7 @@ ASTNode *n_var(Parser *p) {
 		naelt->right_child = arr_index;
 		return naelt;
 	} else {
-		ASTNode *narrv = make_node(NARRV, row, col, SNONE, NULL); // the value is later in parsing
+		ASTNode *narrv = make_node(NARRV, row, col, SNONE, NULL);
 		narrv->left_child = nsimv;
 		narrv->right_child = arr_index;
 		match(p, TDOTT);

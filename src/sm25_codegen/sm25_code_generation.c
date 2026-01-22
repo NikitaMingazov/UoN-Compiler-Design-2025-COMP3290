@@ -12,19 +12,20 @@
 #include "../lib/defs.h"
 #include "../lib/hashmap.h"
 #include "../symboltable.h"
+#include "../lib/linkedlist.h"
 #include <stdarg.h>
 
 enum addresstypes {
-	AJUMP = -1,
-	ASTR = -2,
-	AINT = -3,
-	AREAL = -4,
-	AFUNC = -5
+	AJUMP = -2,
+	ASTR = -3,
+	AINT = -5,
+	AREAL = -7,
+	AFUNC = -11,
 };
 
 typedef struct instruction {
 	u16 type;
-	u32 value;
+	i32 value;
 } Instruction;
 
 typedef struct codegen {
@@ -822,7 +823,6 @@ void codegen_parameters(Codegen *cdg, ASTNode *node, int *paramcount) {
 }
 
 void codegen_callstat(Codegen *cdg, ASTNode *node) {
-	linkedlist_push_tail(cdg->func_calls, node->symbol_value);
 	int paramcount = 0;
 	codegen_parameters(cdg, node->left_child, &paramcount);
 	if (paramcount == 0) {
@@ -832,7 +832,14 @@ void codegen_callstat(Codegen *cdg, ASTNode *node) {
 	} else if (paramcount <= 0xFFFF) {
 		push_instruction(cdg, LH, paramcount);
 	}
-	push_instruction(cdg, LA0, AFUNC);
+	int len = 0;
+	linkedlist_start(cdg->func_calls);
+	while (linkedlist_get_current(cdg->func_calls)) {
+		len++;
+		linkedlist_forward(cdg->func_calls);
+	}
+	linkedlist_push_tail(cdg->func_calls, node->symbol_value);
+	push_instruction(cdg, LA0, AFUNC * (len+1));
 	push_instruction(cdg, JS2, 0);
 }
 
@@ -965,7 +972,6 @@ void codegen_update_addresses(Codegen *cdg) {
 	linkedlist_start(cdg->int_offsets);
 	linkedlist_start(cdg->real_offsets);
 	linkedlist_start(cdg->str_offsets);
-	linkedlist_start(cdg->func_calls);
 	int jump_address_index = 0;
 	linkedlist_start(cdg->instructions);
 	while (linkedlist_get_current(cdg->instructions)) {
@@ -1004,11 +1010,18 @@ void codegen_update_addresses(Codegen *cdg) {
 					case AJUMP: //jump
 						cur->value = cdg->jump_addresses[jump_address_index++];
 						break;
-					case AFUNC: //function call
+					default: // function call (hacky solution due to stack inverting order when a function is used as an expression)
+						if (cur->value >= 0) {
+							break;
+						}
+						int index = cur->value / AFUNC - 1;
+						linkedlist_start(cdg->func_calls);
+						for (int i = 0; i < index; ++i) {
+							linkedlist_forward(cdg->func_calls);
+						}
 						Symbol glob_scoped = *(Symbol*)linkedlist_get_current(cdg->func_calls);
 						glob_scoped.scope = 0;
 						cur->value = *(int *)hashmap_get(cdg->symbol_offset_map, &glob_scoped);
-						linkedlist_forward(cdg->func_calls);
 				}
 				break;
 		}
@@ -1055,6 +1068,7 @@ void codegen_consts(Codegen *cdg, ASTNode* node) {
 int codegen_constexpr(Codegen *cdg, ASTNode* node) {
 	sds glyph;
 	int result;
+	int offset;
 	switch (node->type) {
 		case NILIT:
 			glyph = sds_from_symbol(cdg, node->symbol_value);
@@ -1062,7 +1076,7 @@ int codegen_constexpr(Codegen *cdg, ASTNode* node) {
 			sdsfree(glyph);
 			return result;
 		case NSIMV:
-			int offset = * (int*)hashmap_get(cdg->symbol_offset_map, node->symbol_value);
+			offset = * (int*)hashmap_get(cdg->symbol_offset_map, node->symbol_value);
 			linkedlist_start(cdg->ints);
 			for (int i = 0; i < offset; ++i) {
 				linkedlist_forward(cdg->ints);
@@ -1072,6 +1086,7 @@ int codegen_constexpr(Codegen *cdg, ASTNode* node) {
 			sdsfree(glyph);
 			return result;
 			break;
+		default: abort();
 	}
 	int lhs = codegen_constexpr(cdg, node->left_child);
 	int rhs = codegen_constexpr(cdg, node->right_child);
@@ -1086,6 +1101,7 @@ int codegen_constexpr(Codegen *cdg, ASTNode* node) {
 			return lhs / rhs;
 		case NMOD:
 			return lhs % rhs;
+		default: abort();
 	}
 }
 

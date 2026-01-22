@@ -403,13 +403,10 @@ void analyse_nasgn(ASTree *ast, ASTNode *node, Lister *lst) {
 }
 
 void analyse_npow(ASTree *ast, ASTNode *node, Lister *lst) {
-	if (
-		(node->left_child->symbol_type != SINT) ||
-		(node->right_child->symbol_type != SINT && node->right_child->symbol_type != SREAL)
-	) {
+	if (node->left_child->symbol_type != SINT || node->right_child->symbol_type != SINT) {
 		if (node->left_child->symbol_type != SERROR && node->right_child->symbol_type != SERROR) {
 			ast->is_valid = 0;
-			lister_sem_error(lst, node->row, node->col, "exponentiation is a (INT, REAL|INT) operation");
+			lister_sem_error(lst, node->row, node->col, "exponentiation is a INT -> INT operation");
 		}
 	}
 }

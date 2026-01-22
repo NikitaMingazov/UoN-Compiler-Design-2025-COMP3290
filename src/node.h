@@ -3,7 +3,7 @@
 #define AST_NODE
 
 #include "lib/defs.h"
-#include "astree.h"
+#include "symboltable.h"
 
 enum node_type {
 	NPROG, NGLOB, NILIST, NINIT, NFUNCS, NMAIN, NSDLST, NTYPEL, NRTYPE, NATYPE,
