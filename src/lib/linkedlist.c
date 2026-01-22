@@ -163,3 +163,14 @@ void *linkedlist_pop_tail(LinkedList *list) {
 	return data;
 }
 
+int linkedlist_len(LinkedList *list) {
+	LLNode *cur = list->current;
+	int res = 0;
+	linkedlist_start(list);
+	while (linkedlist_get_current(list)) {
+		++res;
+		linkedlist_forward(list);
+	}
+	list->current = cur;
+	return res;
+}

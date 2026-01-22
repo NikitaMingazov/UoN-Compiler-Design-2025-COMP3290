@@ -41,5 +41,8 @@ void *linkedlist_pop_head(LinkedList *list);
 void *linkedlist_pop_tail(LinkedList *list);
 void *linkedlist_pop_current(LinkedList *list);
 
+// Misc
+int linkedlist_len(LinkedList *list);
+
 #endif
 
