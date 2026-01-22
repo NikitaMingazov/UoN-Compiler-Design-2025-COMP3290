@@ -1,0 +1,16 @@
+new tokens:
+import, &, u64, ...
+TIMPT, TAMPS, TUINT
+new symbol type:
+SU64
+new nodes:
+NIMPRT, NADR, NELPSS
+
+other extensions:
+removing main as a requirement, to make importable functions
+name mangling file-local variables
+preprocessor that converts '\n' etc. to int literals
+possibly general preprocessor for macros
+u64 type for pointers, for C compatiblity
+u8 type
+typed TAC for ABI compatibility for floats
