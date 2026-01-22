@@ -190,6 +190,20 @@ static void noop_free(void *p) {
 	(void)p;
 }
 
+void codegen_free(Codegen *cdg) {
+	linkedlist_free(cdg->strings);
+	linkedlist_free(cdg->instructions);
+	linkedlist_free(cdg->ints);
+	linkedlist_free(cdg->reals);
+	fclose(cdg->out_file);
+	linkedlist_free_ctx(cdg->int_offsets, noop_free_ctx);
+	linkedlist_free_ctx(cdg->real_offsets, noop_free_ctx);
+	linkedlist_free_ctx(cdg->str_offsets, noop_free_ctx);
+	hashmap_free(cdg->symbol_offset_map, noop_free, free);
+	free(cdg->jump_addresses);
+	free(cdg);
+}
+
 void codegen_close(Codegen *cdg) {
 	fprintf(cdg->out_file, "%d\n", cdg->inst_bytes/8);
 	int printed_insts = 0;
@@ -207,7 +221,6 @@ void codegen_close(Codegen *cdg) {
 	}
 	if (padded)
 		fprintf(cdg->out_file, "\n");
-	linkedlist_free(cdg->instructions);
 	fprintf(cdg->out_file, "%d\n", cdg->num_ints);
 	Symbol *const_sym;
 	while ( (const_sym = (Symbol *)linkedlist_pop_head(cdg->ints)) != NULL) {
@@ -215,14 +228,12 @@ void codegen_close(Codegen *cdg) {
 		fprintf(cdg->out_file, "%s\n", const_sds);
 		sdsfree(const_sds);
 	}
-	linkedlist_free(cdg->ints);
 	fprintf(cdg->out_file, "%d\n", cdg->num_reals);
 	while ( (const_sym = (Symbol *)linkedlist_pop_head(cdg->reals)) != NULL) {
 		sds const_sds = sds_from_symbol(cdg, const_sym);
 		fprintf(cdg->out_file, "%s\n", const_sds);
 		sdsfree(const_sds);
 	}
-	linkedlist_free(cdg->reals);
 	fprintf(cdg->out_file, "%d\n", (int)ceil(cdg->str_bytes / 8.0));
 	int printed_chars = 0;
 	while ( (const_sym = (Symbol *)linkedlist_pop_head(cdg->strings)) != NULL) {
@@ -234,14 +245,67 @@ void codegen_close(Codegen *cdg) {
 		fprintf(cdg->out_file, "   0");
 		printed_chars++;
 	}
-	linkedlist_free(cdg->strings);
-	fclose(cdg->out_file);
-	linkedlist_free_ctx(cdg->int_offsets, noop_free_ctx);
-	linkedlist_free_ctx(cdg->real_offsets, noop_free_ctx);
-	linkedlist_free_ctx(cdg->str_offsets, noop_free_ctx);
-	hashmap_free(cdg->symbol_offset_map, noop_free, free);
-	free(cdg->jump_addresses);
-	free(cdg);
+	codegen_free(cdg);
+}
+
+void instr_printf(Instruction *instr, int *byte_counter) {
+	printf("%d %s", *byte_counter, OPCODE_TO_STR[instr->type]);
+	switch (instr->type) {
+		case 41:
+			printf(" %d\n", instr->value);
+			*byte_counter += 1;
+			break;
+		case 42:
+			printf(" %d\n", instr->value);
+			*byte_counter += 2;
+			break;
+		case 80:
+		case 81:
+		case 82:
+		case 90:
+		case 91:
+		case 92:
+			printf(" %d\n", instr->value);
+			*byte_counter += 4;
+			break;
+		default:
+			printf("\n");
+			break;
+	}
+	(*byte_counter)++;
+}
+
+void sm25_printf(Codegen *cdg) {
+	printf( "%d\n", cdg->inst_bytes/8);
+	int cur_byte = 10000;
+	Instruction *instr;
+	while ( (instr = (Instruction *)linkedlist_pop_head(cdg->instructions)) != NULL) {
+		instr_printf(instr, &cur_byte);
+		free(instr);
+	}
+	cur_byte += (8 - cur_byte) % 8; // simulating padding to match SM25
+	printf( "%d\n", cdg->num_ints);
+	Symbol *const_sym;
+	while ( (const_sym = (Symbol *)linkedlist_pop_head(cdg->ints)) != NULL) {
+		sds const_sds = sds_from_symbol(cdg, const_sym);
+		printf( "%d %s\n", cur_byte, const_sds);
+		cur_byte += 8;
+		sdsfree(const_sds);
+	}
+	printf( "%d\n", cdg->num_reals);
+	while ( (const_sym = (Symbol *)linkedlist_pop_head(cdg->reals)) != NULL) {
+		sds const_sds = sds_from_symbol(cdg, const_sym);
+		printf( "%d %s\n", cur_byte, const_sds);
+		cur_byte += 8;
+		sdsfree(const_sds);
+	}
+	printf( "%d\n", (int)ceil(cdg->str_bytes / 8.0));
+	while ( (const_sym = (Symbol *)linkedlist_pop_head(cdg->strings)) != NULL) {
+		sds const_sds = sds_from_symbol(cdg, const_sym);
+		printf( "%d %s\n", cur_byte, const_sds);
+		cur_byte += sdslen(const_sds) + 1;
+		sdsfree(const_sds);
+	}
 }
 
 void push_instruction(Codegen *cdg, int type, int val) {
@@ -1243,7 +1307,7 @@ void codegen_funcs(Codegen *cdg, ASTNode* nfuncs) {
 		codegen_func(cdg, nfuncs);
 }
 
-void sm25_code_gen(char *mod_output, ASTree *ast) {
+void sm25_code_gen(char *mod_output, ASTree *ast, int print_opcodes) {
 	Codegen *cdg = codegen_create(mod_output, ast);
 	cdg->scope_of_main = ast->root->right_child->symbol_value->scope;
 	codegen_globals(cdg, ast->root->left_child);
@@ -1258,6 +1322,11 @@ void sm25_code_gen(char *mod_output, ASTree *ast) {
 		? 0
 		: 8 - cdg->inst_bytes % 8;
 	codegen_update_addresses(cdg);
+	if (print_opcodes) {
+		sm25_printf(cdg);
+		codegen_free(cdg);
+		return;
+	}
 	codegen_close(cdg);
 }
 

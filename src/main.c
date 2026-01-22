@@ -75,6 +75,7 @@ enum arch {
 	BOOLEAN_ARG(debug, "-g", "Emit debugging symbols in asm (WIP)") \
 	BOOLEAN_ARG(print_tac, "-T", "Print TAC to stdout and stop compilation") \
 	BOOLEAN_ARG(print_ast, "-A", "Print AST to stdout and stop compilation") \
+	BOOLEAN_ARG(readable_sm25, "-S", "Print SM25 opcodes to stdout and stop compilation") \
 	BOOLEAN_ARG(make_listing, "-l", "Produce listing file next to output path") \
 	BOOLEAN_ARG(help, "-h", "Show help")
 

@@ -3,7 +3,7 @@
 
 #include "../astree.h"
 
-void sm25_code_gen(char *mod_filename, ASTree *ast);
+void sm25_code_gen(char *mod_filename, ASTree *ast, int print_opcodes);
 
 #endif
 
