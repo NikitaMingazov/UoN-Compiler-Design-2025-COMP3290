@@ -51,12 +51,12 @@ char *asm_filename(char *out_path, char *source_path) {
 	char *source_base = basename(strdup(source_path));
 	char *dot = strrchr(source_base, '.');
 	if (dot) *dot = '\0'; // Remove extension
-	char *mod_filename = malloc(strlen(source_base) + 5); // .asm + null
-	snprintf(mod_filename, strlen(source_base) + 5, "%s.asm", source_base);
-	char *full_mod_path = malloc(strlen(out_path) + strlen(mod_filename) + 2); // / + null
-	snprintf(full_mod_path, strlen(out_path) + strlen(mod_filename) + 2, "%s/%s", out_path, mod_filename);
-	free(mod_filename);
-	return full_mod_path;
+	char *asm_filename = malloc(strlen(source_base) + 5); // .asm + null
+	snprintf(asm_filename, strlen(source_base) + 5, "%s.asm", source_base);
+	char *full_asm_path = malloc(strlen(out_path) + strlen(asm_filename) + 2); // / + null
+	snprintf(full_asm_path, strlen(out_path) + strlen(asm_filename) + 2, "%s/%s", out_path, asm_filename);
+	free(asm_filename);
+	return full_asm_path;
 }
 
 enum arch {

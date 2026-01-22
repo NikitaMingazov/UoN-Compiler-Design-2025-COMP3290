@@ -15,9 +15,11 @@ begin
 	a = 0;
 	b = 1;
 	for (i = 0; i < n)
-		temp = b;
-		b += a;
-		a = temp;
+		a += b;
+		temp = a;
+		a = b;
+		b = temp;
+		i += 1;
 	end
 	return a;
 end
@@ -33,5 +35,5 @@ begin
 	y = 5;
 	w = 0.0 + x + y + z;
 	Out << w << Line;
-	printintpair(fibonacci(10), 1 + 2 * 3);
+	printintpair(1 + 2 * 3, fibonacci(fibonacci(6)));
 end CD25 TACtest

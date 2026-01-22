@@ -1,0 +1,3 @@
+Index of closest:  2
+Point: 0.5 1.5 -0.1
+Distance: 1.5843195891252977

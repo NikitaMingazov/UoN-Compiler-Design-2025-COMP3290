@@ -23,7 +23,7 @@ arrays
 func sqrt (x : real) : real
 	x0 : real
 begin
-	x0 = 1.0; /-- todo: =1; is semantically incorrect, but compiles
+	x0 = 1.0;
 	x0 = x0 - (x0*x0 - x) / (2*x0);
 	x0 = x0 - (x0*x0 - x) / (2*x0);
 	x0 = x0 - (x0*x0 - x) / (2*x0);

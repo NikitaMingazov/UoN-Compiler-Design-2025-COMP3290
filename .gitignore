@@ -5,3 +5,5 @@ cd25c
 ignore
 # listing files
 *.lst
+# clangd config
+compile_flags.txt
