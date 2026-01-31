@@ -20,4 +20,4 @@ The compiler takes a source file as argument, prints any errors or warnings for 
 
 A few precompiled modules that can be run by the interpreter are provided, as is their source code in /cd25_programs. For SM25, the simulator is started using "java -jar SM25.jar", entering the filename for the .mod, clicking load and then running either until halt or per instruction. Input and output text file can also be customised, but the files have to exist, so I just used the defaults to save keystrokes.
 
-For x86_64 Linux, a script to assemble and link the produced .asm is provided. NASM is a dependency, but YASM would also work.
+For x86_64 Linux, a script to assemble and link the produced .asm is provided, using NASM to assemble the program into an object file, and a C compiler for convenience in linking the object with libc. Manually linking using ld with a path to Linux's loader can also be done if preferred.
