@@ -1,10 +1,18 @@
+I'll probably never add these, but to put in writing:
+new functionality:
+$ dereferences, & is address-of
+ imports
+  malloc(bytes: integer) : u64,
+  printf(format: u8arr, ...) : integer
+
 new tokens:
-import, &, u64, ...
-TIMPT, TAMPS, TUINT
+import, &, $, u64, ...
+  u8 on a later version?
+TIMPT, TAMPS, TDOLL, TUINT
 new symbol type:
 SU64
 new nodes:
-NIMPRT, NADR, NELPSS
+NIMPRT, NADR, NDOLL, NELPSS (elipsis)
 
 other extensions:
 removing main as a requirement, to make importable functions
@@ -12,5 +20,5 @@ name mangling file-local variables
 preprocessor that converts '\n' etc. to int literals
 possibly general preprocessor for macros
 u64 type for pointers, for C compatiblity
-u8 type
-typed TAC for ABI compatibility for floats
+u8 type for strings
+typed TAC for ABI compatibility for float function args
